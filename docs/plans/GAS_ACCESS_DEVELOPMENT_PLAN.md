@@ -695,7 +695,7 @@ Before Phase 11:
 ## 9. Progress record
 
 - [ ] Phase 0: contracts and build scaffold
-- [ ] Phase 1: voxel grid geometry and topology
+- [x] Phase 1: voxel grid geometry and topology
 - [ ] Phase 2: static atom voxelization
 - [ ] Phase 3: initial exterior classification
 - [ ] Phase 4: cached reaction-site queries and C interface
@@ -711,3 +711,18 @@ Before Phase 11:
 - [ ] Phase 14: KMC integration and production acceptance
 
 Update this checklist only when a phase's tests and exit gate have passed.
+
+### Completed phase notes
+
+#### Phase 1 completion — 2026-08-11
+
+- Added the CMake C++17 library/test scaffold required to build Phase 1.
+- Implemented dense one-byte state storage, checked 64-bit indexing,
+  coordinate conversion, six-face neighbors, independent x/y/z wrapping,
+  reservoir faces, and explicit source voxels.
+- Passed seven deterministic test groups with GCC 8.5 and Clang 20.1 using the
+  configured warning set plus `-Werror`.
+- Passed Valgrind Memcheck with zero errors and no memory leaks.
+- Phase 0 remains open because its complete C ABI and final input contracts are
+  intentionally scheduled for review before later functionality depends on
+  them.

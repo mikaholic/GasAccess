@@ -1,0 +1,61 @@
+cmake_minimum_required(VERSION 3.16)
+
+project(
+    GasAccess
+    VERSION 0.1.0
+    DESCRIPTION "Geometric gas-accessibility analysis on Cartesian voxel grids"
+    LANGUAGES CXX
+)
+
+add_library(gasaccess
+    src/gas_grid.cpp
+)
+add_library(GasAccess::gasaccess ALIAS gasaccess)
+
+target_compile_features(gasaccess PUBLIC cxx_std_17)
+target_include_directories(gasaccess
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+set_target_properties(gasaccess PROPERTIES
+    CXX_EXTENSIONS OFF
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(gasaccess PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+    )
+elseif(MSVC)
+    target_compile_options(gasaccess PRIVATE /W4)
+endif()
+
+include(CTest)
+
+if(BUILD_TESTING)
+    add_executable(gasaccess_grid_tests
+        tests/test_gas_grid.cpp
+    )
+    target_link_libraries(gasaccess_grid_tests PRIVATE GasAccess::gasaccess)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_grid_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_grid_tests PRIVATE /W4)
+    endif()
+
+    add_test(NAME gasaccess_grid_tests COMMAND gasaccess_grid_tests)
+endif()
+
