@@ -26,6 +26,21 @@ void validate_axis_geometry(double origin, double spacing, std::uint64_t dimensi
     if (!std::isfinite(origin + length)) {
         throw std::invalid_argument("grid axis upper boundary is not finite");
     }
+
+    const double first_center = origin + 0.5 * spacing;
+    if (first_center == origin) {
+        throw std::invalid_argument("grid spacing is too small at the axis origin");
+    }
+    if (dimension > 1) {
+        const double second_center = origin + 1.5 * spacing;
+        const double last_center = origin
+            + (static_cast<double>(dimension) - 0.5) * spacing;
+        const double previous_center = origin
+            + (static_cast<double>(dimension) - 1.5) * spacing;
+        if (first_center == second_center || previous_center == last_center) {
+            throw std::invalid_argument("adjacent voxel centers are not distinguishable");
+        }
+    }
 }
 
 }  // namespace

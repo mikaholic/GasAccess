@@ -179,6 +179,11 @@ void test_invalid_grid_specs()
     grid_spec.origin.x = std::numeric_limits<double>::quiet_NaN();
     REQUIRE_THROWS_AS(GasGrid grid(grid_spec), std::invalid_argument);
 
+    grid_spec = make_grid_spec();
+    grid_spec.origin.x = 1.0e16;
+    grid_spec.spacing = 0.1;
+    REQUIRE_THROWS_AS(GasGrid grid(grid_spec), std::invalid_argument);
+
     grid_spec = make_grid_spec(0, 3, 3);
     REQUIRE_THROWS_AS(GasGrid grid(grid_spec), std::invalid_argument);
 

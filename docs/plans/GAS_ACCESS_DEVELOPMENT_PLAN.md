@@ -696,7 +696,7 @@ Before Phase 11:
 
 - [ ] Phase 0: contracts and build scaffold
 - [x] Phase 1: voxel grid geometry and topology
-- [ ] Phase 2: static atom voxelization
+- [x] Phase 2: static atom voxelization
 - [ ] Phase 3: initial exterior classification
 - [ ] Phase 4: cached reaction-site queries and C interface
 - [ ] Phase 5: deposition with full recomputation
@@ -726,3 +726,21 @@ Update this checklist only when a phase's tests and exit gate have passed.
 - Phase 0 remains open because its complete C ABI and final input contracts are
   intentionally scheduled for review before later functionality depends on
   them.
+
+#### Phase 2 completion — 2026-08-11
+
+- Added non-owning `AtomView` input with double-precision atom positions and
+  radii in the same units as `GridSpec`.
+- Implemented additive hard-sphere steric voxelization using
+  `R_atom + R_precursor`, bounded per-atom candidate ranges, minimum-image
+  distances, and independent periodic wrapping on all axes.
+- Added validation for precursor/atom radii, positions, atom-view pointer/count
+  consistency, and floating-point grid resolution. All batch inputs are
+  validated before the grid is mutated.
+- Passed seven Phase 2 test groups, including 96 deterministic randomized
+  systems covering all eight periodic-axis combinations and checked against a
+  full brute-force atom-versus-voxel oracle.
+- Passed the full two-executable CTest suite under GCC 8.5 with the configured
+  warnings treated as errors.
+- Passed Valgrind Memcheck for the voxelizer suite with zero errors and no
+  memory leaks.

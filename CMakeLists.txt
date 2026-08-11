@@ -8,6 +8,7 @@ project(
 )
 
 add_library(gasaccess
+    src/atom_voxelizer.cpp
     src/gas_grid.cpp
 )
 add_library(GasAccess::gasaccess ALIAS gasaccess)
@@ -57,5 +58,23 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME gasaccess_grid_tests COMMAND gasaccess_grid_tests)
-endif()
 
+    add_executable(gasaccess_atom_voxelizer_tests
+        tests/test_atom_voxelizer.cpp
+    )
+    target_link_libraries(gasaccess_atom_voxelizer_tests PRIVATE GasAccess::gasaccess)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_atom_voxelizer_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_atom_voxelizer_tests PRIVATE /W4)
+    endif()
+
+    add_test(NAME gasaccess_atom_voxelizer_tests COMMAND gasaccess_atom_voxelizer_tests)
+endif()
