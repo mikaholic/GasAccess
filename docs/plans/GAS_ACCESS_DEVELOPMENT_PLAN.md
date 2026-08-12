@@ -1,6 +1,6 @@
 # GasAccess Development Plan
 
-Status: planning  
+Status: in development — Phase 6 complete
 Last updated: 2026-08-12
 
 This is the working plan for developing GasAccess as an independent C++/C
@@ -700,7 +700,7 @@ Before Phase 11:
 - [x] Phase 3: initial exterior classification
 - [x] Phase 4: cached reaction-site queries and C interface
 - [x] Phase 5: deposition with full recomputation
-- [ ] Phase 6: standalone reference driver and baseline measurements
+- [x] Phase 6: standalone reference driver and baseline measurements
 - [ ] Phase 7: conservative local topology filter
 - [ ] Phase 8: serial affected-region repair
 - [ ] Phase 9: selective reaction-site invalidation
@@ -816,3 +816,31 @@ Update this checklist only when a phase's tests and exit gate have passed.
   warnings treated as errors.
 - Passed Valgrind Memcheck for the C++ deposition suite and pure-C end-to-end
   update path with zero errors and no memory leaks.
+
+#### Phase 6 completion — 2026-08-12
+
+- Added `gasaccess_reference_driver`, a standalone C++17 executable that uses
+  only the public in-memory library API and emits machine-readable `key=value`
+  output.
+- Added deterministic open-trench, sealed-trench, and seeded bulk generators;
+  all accept independent x/y/z periodic settings, grid size, spacing, atom and
+  precursor radii, query count, and update count from the command line.
+- Reported state summary counts and FNV-1a state checksums before and after
+  updates, plus separate timings for grid creation, atom generation,
+  voxelization, classification, cached queries, and full deposition updates.
+- Reported exact persistent state storage, a conservative traversal-frontier
+  logical-payload bound, and Linux process peak RSS with clear accounting
+  limitations.
+- Added five end-to-end CTest cases covering open, sealed, z-periodic sealed,
+  seeded bulk, and fully periodic bulk configurations. Each checks an exact
+  deterministic initial-state checksum; the generated sizes progress from 960
+  to 12,288 voxels in routine testing.
+- Completed and recorded a Release baseline with one million atom records,
+  1,048,576 voxels, one million cached queries, and three full-recomputation
+  deposition updates. See `docs/benchmarks/PHASE6_BASELINE.md` for commands,
+  platform details, timings, counts, checksums, and memory results.
+- Passed Valgrind Memcheck for the sealed-trench end-to-end driver path with
+  zero errors and no memory leaks.
+- Deferred the production structure-file adapter until the file format and a
+  representative input are supplied, as required by the information
+  checkpoint before this phase uses external structures.

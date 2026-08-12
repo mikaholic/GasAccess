@@ -41,6 +41,23 @@ elseif(MSVC)
     target_compile_options(gasaccess PRIVATE /W4)
 endif()
 
+add_executable(gasaccess_reference_driver
+    tools/reference_driver.cpp
+)
+target_link_libraries(gasaccess_reference_driver PRIVATE GasAccess::gasaccess)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(gasaccess_reference_driver PRIVATE
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+    )
+elseif(MSVC)
+    target_compile_options(gasaccess_reference_driver PRIVATE /W4)
+endif()
+
 include(CTest)
 
 if(BUILD_TESTING)
@@ -186,5 +203,81 @@ if(BUILD_TESTING)
     add_test(
         NAME gasaccess_deposition_updater_tests
         COMMAND gasaccess_deposition_updater_tests
+    )
+
+    add_test(
+        NAME gasaccess_reference_open_trench
+        COMMAND gasaccess_reference_driver
+            --scenario open-trench
+            --nx 12 --ny 8 --nz 10
+            --query-count 2000
+            --update-count 2
+    )
+    add_test(
+        NAME gasaccess_reference_sealed_trench
+        COMMAND gasaccess_reference_driver
+            --scenario sealed-trench
+            --nx 12 --ny 8 --nz 10
+            --query-count 2000
+            --update-count 2
+    )
+    add_test(
+        NAME gasaccess_reference_sealed_trench_periodic_z
+        COMMAND gasaccess_reference_driver
+            --scenario sealed-trench
+            --nx 12 --ny 8 --nz 10
+            --query-count 2000
+            --update-count 2
+            --periodic-z
+    )
+    add_test(
+        NAME gasaccess_reference_bulk_small
+        COMMAND gasaccess_reference_driver
+            --scenario bulk
+            --nx 12 --ny 8 --nz 10
+            --atom-count 200
+            --query-count 2000
+            --update-count 2
+            --seed 12345
+    )
+    add_test(
+        NAME gasaccess_reference_bulk_periodic
+        COMMAND gasaccess_reference_driver
+            --scenario bulk
+            --nx 32 --ny 16 --nz 24
+            --atom-count 5000
+            --query-count 10000
+            --update-count 2
+            --seed 12345
+            --periodic-x --periodic-y --periodic-z
+    )
+    set_tests_properties(
+        gasaccess_reference_open_trench
+        gasaccess_reference_sealed_trench
+        gasaccess_reference_sealed_trench_periodic_z
+        gasaccess_reference_bulk_small
+        gasaccess_reference_bulk_periodic
+        PROPERTIES LABELS "reference"
+    )
+    set_tests_properties(gasaccess_reference_open_trench PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "initial_state_checksum=0x438e38acbd5c56b5"
+    )
+    set_tests_properties(gasaccess_reference_sealed_trench PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "initial_state_checksum=0xd3d951011d1548c5"
+    )
+    set_tests_properties(
+        gasaccess_reference_sealed_trench_periodic_z PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "initial_state_checksum=0xf28e91515bcd9585"
+    )
+    set_tests_properties(gasaccess_reference_bulk_small PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "initial_state_checksum=0x4800ebb6f44af30c"
+    )
+    set_tests_properties(gasaccess_reference_bulk_periodic PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "initial_state_checksum=0x8bb2ec06c6c68d92"
     )
 endif()
