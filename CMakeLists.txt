@@ -9,6 +9,7 @@ project(
 
 add_library(gasaccess
     src/atom_voxelizer.cpp
+    src/exterior_classifier.cpp
     src/gas_grid.cpp
 )
 add_library(GasAccess::gasaccess ALIAS gasaccess)
@@ -77,4 +78,28 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME gasaccess_atom_voxelizer_tests COMMAND gasaccess_atom_voxelizer_tests)
+
+    add_executable(gasaccess_exterior_classifier_tests
+        tests/test_exterior_classifier.cpp
+    )
+    target_link_libraries(gasaccess_exterior_classifier_tests
+        PRIVATE GasAccess::gasaccess
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_exterior_classifier_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_exterior_classifier_tests PRIVATE /W4)
+    endif()
+
+    add_test(
+        NAME gasaccess_exterior_classifier_tests
+        COMMAND gasaccess_exterior_classifier_tests
+    )
 endif()

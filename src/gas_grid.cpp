@@ -240,7 +240,14 @@ bool GasGrid::is_reservoir_source(const VoxelCoord& voxel_coord) const
 
 bool GasGrid::is_reservoir_source(VoxelId voxel_id) const
 {
-    return is_reservoir_source(voxel_coord(voxel_id));
+    const auto coordinate = voxel_coord(voxel_id);
+    if (is_boundary_source(coordinate)) {
+        return true;
+    }
+    return std::binary_search(
+        explicit_source_ids_.begin(),
+        explicit_source_ids_.end(),
+        voxel_id);
 }
 
 const std::vector<VoxelId>& GasGrid::explicit_source_ids() const noexcept

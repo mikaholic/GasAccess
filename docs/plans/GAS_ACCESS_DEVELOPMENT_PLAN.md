@@ -1,7 +1,7 @@
 # GasAccess Development Plan
 
 Status: planning  
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 This is the working plan for developing GasAccess as an independent C++/C
 library and later integrating it with an MPI-parallel kinetic Monte Carlo
@@ -697,7 +697,7 @@ Before Phase 11:
 - [ ] Phase 0: contracts and build scaffold
 - [x] Phase 1: voxel grid geometry and topology
 - [x] Phase 2: static atom voxelization
-- [ ] Phase 3: initial exterior classification
+- [x] Phase 3: initial exterior classification
 - [ ] Phase 4: cached reaction-site queries and C interface
 - [ ] Phase 5: deposition with full recomputation
 - [ ] Phase 6: standalone reference driver and baseline measurements
@@ -743,4 +743,22 @@ Update this checklist only when a phase's tests and exit gate have passed.
 - Passed the full two-executable CTest suite under GCC 8.5 with the configured
   warnings treated as errors.
 - Passed Valgrind Memcheck for the voxelizer suite with zero errors and no
+  memory leaks.
+
+#### Phase 3 completion — 2026-08-12
+
+- Added `ExteriorClassifier::classify()` as the permanent full serial reference
+  classifier. It preserves `Solid`, resets all cached empty states, seeds every
+  non-solid reservoir voxel, and flood-fills through six-face neighbors.
+- Added `ClassificationSummary` with solid, outside-accessible, and closed-void
+  voxel counts.
+- Verified empty, completely solid, sourceless, blocked-source, explicit-source,
+  open-trench, sealed-trench, enclosed-cavity, and one-voxel-channel cases.
+- Verified edge-only and corner-only contacts remain disconnected and verified
+  paths crossing the periodic x, y, and z seams independently.
+- Passed state/count/path invariants for 128 deterministic randomized grids
+  spanning all eight periodic-axis configurations.
+- Passed the full three-executable CTest suite under GCC 8.5 with the configured
+  warnings treated as errors.
+- Passed Valgrind Memcheck for the classifier suite with zero errors and no
   memory leaks.
