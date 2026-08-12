@@ -100,6 +100,7 @@ public:
     const std::vector<VoxelId>& explicit_source_ids() const noexcept;
 
     GasState gas_state(VoxelId voxel_id) const;
+    GasState gas_state(const VoxelCoord& voxel_coord) const;
     void set_gas_state(VoxelId voxel_id, GasState gas_state);
     void fill_gas_state(GasState gas_state) noexcept;
 

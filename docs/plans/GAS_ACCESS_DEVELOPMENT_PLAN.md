@@ -694,11 +694,11 @@ Before Phase 11:
 
 ## 9. Progress record
 
-- [ ] Phase 0: contracts and build scaffold
+- [x] Phase 0: contracts and build scaffold
 - [x] Phase 1: voxel grid geometry and topology
 - [x] Phase 2: static atom voxelization
 - [x] Phase 3: initial exterior classification
-- [ ] Phase 4: cached reaction-site queries and C interface
+- [x] Phase 4: cached reaction-site queries and C interface
 - [ ] Phase 5: deposition with full recomputation
 - [ ] Phase 6: standalone reference driver and baseline measurements
 - [ ] Phase 7: conservative local topology filter
@@ -714,6 +714,17 @@ Update this checklist only when a phase's tests and exit gate have passed.
 
 ### Completed phase notes
 
+#### Phase 0 completion — 2026-08-12
+
+- Finalized the current C++17 in-memory contracts for grid geometry, atoms,
+  sources, states, classification, and bounded site queries.
+- Added fixed-width public types, checked configuration validation, documented
+  units and naming rules, and status-based error handling for C callers.
+- Completed the CMake scaffold and verified both C++ and pure-C clients compile,
+  link, and agree on fixed-width state and voxel-ID representations.
+- The APIs may still gain backward-compatible adapters when the real KMC
+  interfaces are reviewed before Milestone C.
+
 #### Phase 1 completion — 2026-08-11
 
 - Added the CMake C++17 library/test scaffold required to build Phase 1.
@@ -723,9 +734,6 @@ Update this checklist only when a phase's tests and exit gate have passed.
 - Passed seven deterministic test groups with GCC 8.5 and Clang 20.1 using the
   configured warning set plus `-Werror`.
 - Passed Valgrind Memcheck with zero errors and no memory leaks.
-- Phase 0 remains open because its complete C ABI and final input contracts are
-  intentionally scheduled for review before later functionality depends on
-  them.
 
 #### Phase 2 completion — 2026-08-11
 
@@ -762,3 +770,26 @@ Update this checklist only when a phase's tests and exit gate have passed.
   warnings treated as errors.
 - Passed Valgrind Memcheck for the classifier suite with zero errors and no
   memory leaks.
+
+#### Phase 4 completion — 2026-08-12
+
+- Added `GasAccessibilityQuery` for direct voxel-state queries, a default
+  position-based stencil containing the site voxel plus six face neighbors, and
+  a caller-provided stencil capped at 27 voxel IDs.
+- Kept gas-to-gas connectivity at six neighbors while allowing the site-contact
+  policy to be supplied independently by a future KMC adapter.
+- Verified site queries across periodic seams, outside non-periodic boundaries,
+  containing voxels, face neighbors, diagonal-only contacts, invalid IDs, empty
+  stencils, and oversized stencils.
+- Instrumented 3,000 representative hot queries and verified zero dynamic
+  allocations and no cached-state mutation.
+- Added the opaque-handle C99 API for grid creation/destruction, state access,
+  atom voxelization, full exterior classification, and all accessibility query
+  forms. C++ exceptions are converted to fixed status codes and a thread-local
+  error message.
+- Avoided a full atom-array copy in the C wrapper by converting validated atom
+  input in fixed-size stack chunks.
+- Passed the full five-executable CTest suite under GCC 8.5 with both C and C++
+  warnings treated as errors, including a client compiled as pure C99.
+- Passed Valgrind Memcheck for both the query suite and pure-C end-to-end API
+  test with zero errors and no memory leaks.

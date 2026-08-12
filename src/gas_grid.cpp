@@ -263,6 +263,11 @@ GasState GasGrid::gas_state(VoxelId voxel_id) const
     return states_[static_cast<std::size_t>(voxel_id)];
 }
 
+GasState GasGrid::gas_state(const VoxelCoord& voxel_coord_value) const
+{
+    return gas_state(voxel_id(voxel_coord_value));
+}
+
 void GasGrid::set_gas_state(VoxelId voxel_id, GasState gas_state)
 {
     if (voxel_id >= voxel_count_) {

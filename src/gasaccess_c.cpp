@@ -1,0 +1,359 @@
+#include "gasaccess/gasaccess_c.h"
+
+#include "gasaccess/accessibility_query.hpp"
+#include "gasaccess/atom_voxelizer.hpp"
+#include "gasaccess/exterior_classifier.hpp"
+#include "gasaccess/gas_grid.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <cstdio>
+#include <memory>
+#include <new>
+#include <stdexcept>
+#include <utility>
+
+struct ga_grid {
+    explicit ga_grid(gasaccess::GridSpec grid_spec)
+        : gas_grid(std::move(grid_spec))
+    {
+    }
+
+    gasaccess::GasGrid gas_grid;
+};
+
+namespace {
+
+thread_local std::array<char, 512> last_error_message{};
+
+void set_last_error(const char* message) noexcept
+{
+    if (message == nullptr) {
+        last_error_message[0] = '\0';
+        return;
+    }
+    static_cast<void>(std::snprintf(
+        last_error_message.data(),
+        last_error_message.size(),
+        "%s",
+        message));
+}
+
+template <typename Function>
+ga_status protect_c_api(Function&& function) noexcept
+{
+    try {
+        std::forward<Function>(function)();
+        set_last_error(nullptr);
+        return GA_STATUS_SUCCESS;
+    } catch (const std::bad_alloc& error) {
+        set_last_error(error.what());
+        return GA_STATUS_ALLOCATION_FAILED;
+    } catch (const std::overflow_error& error) {
+        set_last_error(error.what());
+        return GA_STATUS_OVERFLOW;
+    } catch (const std::out_of_range& error) {
+        set_last_error(error.what());
+        return GA_STATUS_OUT_OF_RANGE;
+    } catch (const std::invalid_argument& error) {
+        set_last_error(error.what());
+        return GA_STATUS_INVALID_ARGUMENT;
+    } catch (const std::length_error& error) {
+        set_last_error(error.what());
+        return GA_STATUS_OVERFLOW;
+    } catch (const std::exception& error) {
+        set_last_error(error.what());
+        return GA_STATUS_INTERNAL_ERROR;
+    } catch (...) {
+        set_last_error("unknown C++ exception");
+        return GA_STATUS_INTERNAL_ERROR;
+    }
+}
+
+void require_pointer(const void* pointer, const char* name)
+{
+    if (pointer == nullptr) {
+        throw std::invalid_argument(name);
+    }
+}
+
+gasaccess::VoxelCoord convert_voxel_coord(ga_voxel_coord voxel_coord)
+{
+    return {voxel_coord.x, voxel_coord.y, voxel_coord.z};
+}
+
+gasaccess::Point3 convert_point(ga_point3 point)
+{
+    return {point.x, point.y, point.z};
+}
+
+gasaccess::GridSpec convert_grid_spec(const ga_grid_spec& c_grid_spec)
+{
+    if (c_grid_spec.explicit_source_count != 0
+        && c_grid_spec.explicit_source_voxels == nullptr) {
+        throw std::invalid_argument(
+            "explicit source pointer is null with nonzero count");
+    }
+
+    gasaccess::GridSpec grid_spec{};
+    grid_spec.origin = convert_point(c_grid_spec.origin);
+    grid_spec.spacing = c_grid_spec.spacing;
+    grid_spec.dimensions = {
+        c_grid_spec.dimensions.x,
+        c_grid_spec.dimensions.y,
+        c_grid_spec.dimensions.z
+    };
+    grid_spec.periodic = {
+        c_grid_spec.periodic.x != 0,
+        c_grid_spec.periodic.y != 0,
+        c_grid_spec.periodic.z != 0
+    };
+    grid_spec.reservoir_faces = {
+        c_grid_spec.reservoir_faces.x_low != 0,
+        c_grid_spec.reservoir_faces.x_high != 0,
+        c_grid_spec.reservoir_faces.y_low != 0,
+        c_grid_spec.reservoir_faces.y_high != 0,
+        c_grid_spec.reservoir_faces.z_low != 0,
+        c_grid_spec.reservoir_faces.z_high != 0
+    };
+    grid_spec.explicit_source_voxels.reserve(c_grid_spec.explicit_source_count);
+    for (std::size_t index = 0;
+         index < c_grid_spec.explicit_source_count;
+         ++index) {
+        grid_spec.explicit_source_voxels.push_back(
+            convert_voxel_coord(c_grid_spec.explicit_source_voxels[index]));
+    }
+    return grid_spec;
+}
+
+gasaccess::GasState convert_gas_state(ga_gas_state gas_state)
+{
+    switch (gas_state) {
+    case GA_GAS_STATE_UNCLASSIFIED:
+        return gasaccess::GasState::Unclassified;
+    case GA_GAS_STATE_SOLID:
+        return gasaccess::GasState::Solid;
+    case GA_GAS_STATE_OUTSIDE_ACCESSIBLE:
+        return gasaccess::GasState::OutsideAccessible;
+    case GA_GAS_STATE_CLOSED_VOID:
+        return gasaccess::GasState::ClosedVoid;
+    default:
+        throw std::invalid_argument("invalid gas state value");
+    }
+}
+
+void validate_c_atoms(
+    const ga_grid& grid,
+    const ga_atom* atoms,
+    std::size_t atom_count,
+    double precursor_radius)
+{
+    if (atom_count != 0 && atoms == nullptr) {
+        throw std::invalid_argument("atom pointer is null with nonzero count");
+    }
+    if (!std::isfinite(precursor_radius) || precursor_radius < 0.0) {
+        throw std::invalid_argument("precursor radius must be finite and nonnegative");
+    }
+
+    for (std::size_t index = 0; index < atom_count; ++index) {
+        const auto& atom = atoms[index];
+        if (!std::isfinite(atom.position.x)
+            || !std::isfinite(atom.position.y)
+            || !std::isfinite(atom.position.z)) {
+            throw std::invalid_argument("atom position must be finite");
+        }
+        if (!std::isfinite(atom.radius) || atom.radius < 0.0) {
+            throw std::invalid_argument("atom radius must be finite and nonnegative");
+        }
+        const double excluded_radius = atom.radius + precursor_radius;
+        if (!std::isfinite(excluded_radius)
+            || !std::isfinite(excluded_radius * excluded_radius)) {
+            throw std::invalid_argument("excluded radius is not finite");
+        }
+        if (!grid.gas_grid.locate_voxel(convert_point(atom.position))) {
+            throw std::invalid_argument(
+                "atom position is outside a non-periodic grid boundary");
+        }
+    }
+}
+
+}  // namespace
+
+extern "C" {
+
+const char* ga_last_error_message(void)
+{
+    return last_error_message.data();
+}
+
+ga_status ga_grid_create(const ga_grid_spec* grid_spec, ga_grid** out_grid)
+{
+    if (out_grid != nullptr) {
+        *out_grid = nullptr;
+    }
+    return protect_c_api([&]() {
+        require_pointer(grid_spec, "grid specification pointer is null");
+        require_pointer(out_grid, "output grid pointer is null");
+        auto new_grid = std::make_unique<ga_grid>(convert_grid_spec(*grid_spec));
+        *out_grid = new_grid.release();
+    });
+}
+
+void ga_grid_destroy(ga_grid* grid)
+{
+    delete grid;
+}
+
+ga_status ga_grid_get_voxel_count(const ga_grid* grid, ga_voxel_id* out_count)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_count, "output voxel-count pointer is null");
+        *out_count = grid->gas_grid.voxel_count();
+    });
+}
+
+ga_status ga_grid_get_voxel_id(
+    const ga_grid* grid,
+    ga_voxel_coord voxel_coord,
+    ga_voxel_id* out_voxel_id)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_voxel_id, "output voxel-id pointer is null");
+        *out_voxel_id = grid->gas_grid.voxel_id(convert_voxel_coord(voxel_coord));
+    });
+}
+
+ga_status ga_grid_get_state(
+    const ga_grid* grid,
+    ga_voxel_id voxel_id,
+    ga_gas_state* out_gas_state)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_gas_state, "output gas-state pointer is null");
+        *out_gas_state = static_cast<ga_gas_state>(grid->gas_grid.gas_state(voxel_id));
+    });
+}
+
+ga_status ga_grid_get_state_at(
+    const ga_grid* grid,
+    ga_voxel_coord voxel_coord,
+    ga_gas_state* out_gas_state)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_gas_state, "output gas-state pointer is null");
+        *out_gas_state = static_cast<ga_gas_state>(
+            grid->gas_grid.gas_state(convert_voxel_coord(voxel_coord)));
+    });
+}
+
+ga_status ga_grid_set_state(
+    ga_grid* grid,
+    ga_voxel_id voxel_id,
+    ga_gas_state gas_state)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        grid->gas_grid.set_gas_state(voxel_id, convert_gas_state(gas_state));
+    });
+}
+
+ga_status ga_voxelize_atoms(
+    ga_grid* grid,
+    const ga_atom* atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_voxel_id* out_newly_solid_count)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(
+            out_newly_solid_count,
+            "output newly-solid-count pointer is null");
+        validate_c_atoms(*grid, atoms, atom_count, precursor_radius);
+
+        constexpr std::size_t chunk_capacity = 256;
+        std::array<gasaccess::Atom, chunk_capacity> atom_chunk{};
+        gasaccess::AtomVoxelizer voxelizer(precursor_radius);
+        ga_voxel_id newly_solid_count = 0;
+
+        std::size_t offset = 0;
+        while (offset < atom_count) {
+            const auto chunk_size = std::min(chunk_capacity, atom_count - offset);
+            for (std::size_t index = 0; index < chunk_size; ++index) {
+                const auto& atom = atoms[offset + index];
+                atom_chunk[index] = {convert_point(atom.position), atom.radius};
+            }
+            newly_solid_count += voxelizer.voxelize(
+                grid->gas_grid,
+                {atom_chunk.data(), chunk_size});
+            offset += chunk_size;
+        }
+        *out_newly_solid_count = newly_solid_count;
+    });
+}
+
+ga_status ga_classify_exterior(
+    ga_grid* grid,
+    ga_classification_summary* out_summary)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_summary, "output classification-summary pointer is null");
+        const auto summary = gasaccess::ExteriorClassifier{}.classify(grid->gas_grid);
+        out_summary->solid_count = summary.solid_count;
+        out_summary->outside_accessible_count = summary.outside_accessible_count;
+        out_summary->closed_void_count = summary.closed_void_count;
+    });
+}
+
+ga_status ga_is_voxel_outside_accessible(
+    const ga_grid* grid,
+    ga_voxel_id voxel_id,
+    uint8_t* out_is_accessible)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_is_accessible, "output accessibility pointer is null");
+        const gasaccess::GasAccessibilityQuery query(grid->gas_grid);
+        *out_is_accessible = query.is_voxel_outside_accessible(voxel_id) ? 1U : 0U;
+    });
+}
+
+ga_status ga_is_site_accessible(
+    const ga_grid* grid,
+    ga_point3 site_position,
+    uint8_t* out_is_accessible)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_is_accessible, "output accessibility pointer is null");
+        const gasaccess::GasAccessibilityQuery query(grid->gas_grid);
+        *out_is_accessible = query.is_site_accessible(convert_point(site_position))
+            ? 1U
+            : 0U;
+    });
+}
+
+ga_status ga_is_stencil_accessible(
+    const ga_grid* grid,
+    const ga_voxel_id* voxel_ids,
+    size_t voxel_count,
+    uint8_t* out_is_accessible)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_is_accessible, "output accessibility pointer is null");
+        const gasaccess::GasAccessibilityQuery query(grid->gas_grid);
+        *out_is_accessible = query.is_site_accessible({voxel_ids, voxel_count})
+            ? 1U
+            : 0U;
+    });
+}
+
+}  // extern "C"

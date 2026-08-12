@@ -4,12 +4,14 @@ project(
     GasAccess
     VERSION 0.1.0
     DESCRIPTION "Geometric gas-accessibility analysis on Cartesian voxel grids"
-    LANGUAGES CXX
+    LANGUAGES C CXX
 )
 
 add_library(gasaccess
+    src/accessibility_query.cpp
     src/atom_voxelizer.cpp
     src/exterior_classifier.cpp
+    src/gasaccess_c.cpp
     src/gas_grid.cpp
 )
 add_library(GasAccess::gasaccess ALIAS gasaccess)
@@ -102,4 +104,62 @@ if(BUILD_TESTING)
         NAME gasaccess_exterior_classifier_tests
         COMMAND gasaccess_exterior_classifier_tests
     )
+
+    add_executable(gasaccess_accessibility_query_tests
+        tests/test_accessibility_query.cpp
+    )
+    target_link_libraries(gasaccess_accessibility_query_tests
+        PRIVATE GasAccess::gasaccess
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_accessibility_query_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+
+        if(UNIX AND NOT APPLE AND CMAKE_SIZEOF_VOID_P EQUAL 8)
+            target_compile_definitions(gasaccess_accessibility_query_tests
+                PRIVATE GASACCESS_TEST_WRAP_ALLOCATIONS=1
+            )
+            target_link_options(gasaccess_accessibility_query_tests PRIVATE
+                -Wl,--wrap=_Znwm
+                -Wl,--wrap=_Znam
+            )
+        endif()
+    elseif(MSVC)
+        target_compile_options(gasaccess_accessibility_query_tests PRIVATE /W4)
+    endif()
+
+    add_test(
+        NAME gasaccess_accessibility_query_tests
+        COMMAND gasaccess_accessibility_query_tests
+    )
+
+    add_executable(gasaccess_c_api_tests
+        tests/test_c_api.c
+    )
+    target_link_libraries(gasaccess_c_api_tests PRIVATE GasAccess::gasaccess)
+    set_target_properties(gasaccess_c_api_tests PROPERTIES
+        C_STANDARD 99
+        C_STANDARD_REQUIRED ON
+        C_EXTENSIONS OFF
+    )
+
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_c_api_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_c_api_tests PRIVATE /W4)
+    endif()
+
+    add_test(NAME gasaccess_c_api_tests COMMAND gasaccess_c_api_tests)
 endif()
