@@ -2,6 +2,7 @@
 
 #include "gasaccess/accessibility_query.hpp"
 #include "gasaccess/atom_voxelizer.hpp"
+#include "gasaccess/deposition_updater.hpp"
 #include "gasaccess/exterior_classifier.hpp"
 #include "gasaccess/gas_grid.hpp"
 
@@ -14,6 +15,7 @@
 #include <new>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 struct ga_grid {
     explicit ga_grid(gasaccess::GridSpec grid_spec)
@@ -22,6 +24,10 @@ struct ga_grid {
     }
 
     gasaccess::GasGrid gas_grid;
+};
+
+struct ga_update_result {
+    gasaccess::DepositionUpdateResult update_result;
 };
 
 namespace {
@@ -179,6 +185,21 @@ void validate_c_atoms(
     }
 }
 
+std::vector<gasaccess::Atom> convert_c_atoms(
+    const ga_atom* atoms,
+    std::size_t atom_count)
+{
+    std::vector<gasaccess::Atom> converted_atoms;
+    converted_atoms.reserve(atom_count);
+    for (std::size_t index = 0; index < atom_count; ++index) {
+        converted_atoms.push_back({
+            convert_point(atoms[index].position),
+            atoms[index].radius
+        });
+    }
+    return converted_atoms;
+}
+
 }  // namespace
 
 extern "C" {
@@ -309,6 +330,68 @@ ga_status ga_classify_exterior(
         out_summary->solid_count = summary.solid_count;
         out_summary->outside_accessible_count = summary.outside_accessible_count;
         out_summary->closed_void_count = summary.closed_void_count;
+    });
+}
+
+ga_status ga_apply_deposition(
+    ga_grid* grid,
+    const ga_atom* deposited_atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_update_result** out_update_result)
+{
+    if (out_update_result != nullptr) {
+        *out_update_result = nullptr;
+    }
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_update_result, "output update-result pointer is null");
+        validate_c_atoms(*grid, deposited_atoms, atom_count, precursor_radius);
+        const auto converted_atoms = convert_c_atoms(deposited_atoms, atom_count);
+        auto update_result = std::make_unique<ga_update_result>();
+        update_result->update_result = gasaccess::DepositionUpdater(precursor_radius)
+            .apply_deposition(
+                grid->gas_grid,
+                {converted_atoms.data(), converted_atoms.size()});
+        *out_update_result = update_result.release();
+    });
+}
+
+void ga_update_result_destroy(ga_update_result* update_result)
+{
+    delete update_result;
+}
+
+ga_status ga_update_result_get_summary(
+    const ga_update_result* update_result,
+    ga_deposition_update_summary* out_summary)
+{
+    return protect_c_api([&]() {
+        require_pointer(update_result, "update-result pointer is null");
+        require_pointer(out_summary, "output deposition-summary pointer is null");
+        const auto& result = update_result->update_result;
+        out_summary->newly_solid_count = result.newly_solid_count;
+        out_summary->changed_voxel_count = result.changed_voxel_ids.size();
+        out_summary->classification.solid_count = result.classification.solid_count;
+        out_summary->classification.outside_accessible_count =
+            result.classification.outside_accessible_count;
+        out_summary->classification.closed_void_count =
+            result.classification.closed_void_count;
+    });
+}
+
+ga_status ga_update_result_get_changed_voxels(
+    const ga_update_result* update_result,
+    const ga_voxel_id** out_voxel_ids,
+    size_t* out_count)
+{
+    return protect_c_api([&]() {
+        require_pointer(update_result, "update-result pointer is null");
+        require_pointer(out_voxel_ids, "output changed-voxel pointer is null");
+        require_pointer(out_count, "output changed-voxel-count pointer is null");
+        const auto& changed_voxel_ids = update_result->update_result.changed_voxel_ids;
+        *out_voxel_ids = changed_voxel_ids.data();
+        *out_count = changed_voxel_ids.size();
     });
 }
 

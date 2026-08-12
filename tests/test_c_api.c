@@ -145,6 +145,56 @@ static void test_c_atom_voxelization(void)
     ga_grid_destroy(grid);
 }
 
+static void test_c_deposition_update(void)
+{
+    ga_grid_spec grid_spec = make_grid_spec(3, 1, 1);
+    ga_voxel_coord explicit_source = {1, 0, 0};
+    ga_grid* grid = NULL;
+    ga_atom atom;
+    ga_update_result* update_result = NULL;
+    ga_deposition_update_summary update_summary;
+    const ga_voxel_id* changed_voxel_ids = NULL;
+    size_t changed_voxel_count = 0;
+
+    grid_spec.periodic.x = 1;
+    grid_spec.explicit_source_voxels = &explicit_source;
+    grid_spec.explicit_source_count = 1;
+    atom.position.x = 1.5;
+    atom.position.y = 0.5;
+    atom.position.z = 0.5;
+    atom.radius = 0.0;
+
+    REQUIRE(ga_grid_create(&grid_spec, &grid) == GA_STATUS_SUCCESS);
+    REQUIRE(ga_classify_exterior(grid, &(ga_classification_summary){0})
+        == GA_STATUS_SUCCESS);
+    REQUIRE(ga_apply_deposition(
+        grid,
+        &atom,
+        1,
+        0.0,
+        &update_result) == GA_STATUS_SUCCESS);
+    REQUIRE(update_result != NULL);
+    REQUIRE(ga_update_result_get_summary(update_result, &update_summary)
+        == GA_STATUS_SUCCESS);
+    REQUIRE(update_summary.newly_solid_count == 1);
+    REQUIRE(update_summary.changed_voxel_count == 3);
+    REQUIRE(update_summary.classification.solid_count == 1);
+    REQUIRE(update_summary.classification.outside_accessible_count == 0);
+    REQUIRE(update_summary.classification.closed_void_count == 2);
+    REQUIRE(ga_update_result_get_changed_voxels(
+        update_result,
+        &changed_voxel_ids,
+        &changed_voxel_count) == GA_STATUS_SUCCESS);
+    REQUIRE(changed_voxel_count == 3);
+    REQUIRE(changed_voxel_ids != NULL);
+    REQUIRE(changed_voxel_ids[0] < changed_voxel_ids[1]);
+    REQUIRE(changed_voxel_ids[1] < changed_voxel_ids[2]);
+
+    ga_update_result_destroy(update_result);
+    ga_update_result_destroy(NULL);
+    ga_grid_destroy(grid);
+}
+
 static void test_c_error_handling(void)
 {
     ga_grid_spec invalid_spec = make_grid_spec(0, 1, 1);
@@ -152,6 +202,8 @@ static void test_c_error_handling(void)
     ga_grid_spec valid_spec = make_grid_spec(1, 1, 1);
     ga_gas_state gas_state = GA_GAS_STATE_UNCLASSIFIED;
     uint8_t is_accessible = 0;
+    ga_atom atom = {{0.5, 0.5, 0.5}, 0.0};
+    ga_update_result* update_result = NULL;
 
     REQUIRE(sizeof(ga_gas_state) == 1);
     REQUIRE(sizeof(ga_voxel_id) == 8);
@@ -165,6 +217,13 @@ static void test_c_error_handling(void)
     REQUIRE(ga_grid_set_state(grid, 0, (ga_gas_state)99)
         == GA_STATUS_INVALID_ARGUMENT);
     REQUIRE(ga_grid_get_state(grid, 1, &gas_state) == GA_STATUS_OUT_OF_RANGE);
+    REQUIRE(ga_apply_deposition(
+        grid,
+        &atom,
+        1,
+        0.0,
+        &update_result) == GA_STATUS_INVALID_ARGUMENT);
+    REQUIRE(update_result == NULL);
     REQUIRE(ga_is_stencil_accessible(
         grid,
         NULL,
@@ -197,11 +256,16 @@ int main(void)
         printf("[PASS] C error handling\n");
     }
 
+    test_c_deposition_update();
+    if (failure_count == 0) {
+        printf("[PASS] C deposition update\n");
+    }
+
     if (failure_count != 0) {
         fprintf(stderr, "%d C API test failure(s)\n", failure_count);
         return 1;
     }
 
-    printf("3 C API test groups passed\n");
+    printf("4 C API test groups passed\n");
     return 0;
 }

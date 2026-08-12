@@ -699,7 +699,7 @@ Before Phase 11:
 - [x] Phase 2: static atom voxelization
 - [x] Phase 3: initial exterior classification
 - [x] Phase 4: cached reaction-site queries and C interface
-- [ ] Phase 5: deposition with full recomputation
+- [x] Phase 5: deposition with full recomputation
 - [ ] Phase 6: standalone reference driver and baseline measurements
 - [ ] Phase 7: conservative local topology filter
 - [ ] Phase 8: serial affected-region repair
@@ -793,3 +793,26 @@ Update this checklist only when a phase's tests and exit gate have passed.
   warnings treated as errors, including a client compiled as pure C99.
 - Passed Valgrind Memcheck for both the query suite and pure-C end-to-end API
   test with zero errors and no memory leaks.
+
+#### Phase 5 completion — 2026-08-12
+
+- Added `DepositionUpdater::apply_deposition()` for atoms whose placement and
+  deposition physics are determined by the caller/KMC simulator.
+- Enforced the monotonic deposition-only contract and required a fully
+  classified input grid. Each event batch performs additive steric voxelization
+  and, when occupancy changes, exactly one full Phase 3 reclassification.
+- Added `DepositionUpdateResult` with the newly solid count, post-update
+  classification counts, and sorted unique IDs for every voxel whose state
+  changed. Fully overlapping and empty batches skip reclassification.
+- Added opaque C update-result handles and accessors without changing ownership
+  of the caller's deposited-atom data.
+- Verified staged trench sidewall growth and pinch-off, overlapping/no-op
+  events, batch validation before mutation, closure across a periodic seam, and
+  deposition that blocks the only explicit reservoir source.
+- Compared 160 deterministic one- and two-atom event batches across all eight
+  periodic-axis configurations against explicit voxelization plus full
+  reference classification after every event.
+- Passed the full six-executable CTest suite under GCC 8.5 with C and C++
+  warnings treated as errors.
+- Passed Valgrind Memcheck for the C++ deposition suite and pure-C end-to-end
+  update path with zero errors and no memory leaks.

@@ -10,6 +10,7 @@ project(
 add_library(gasaccess
     src/accessibility_query.cpp
     src/atom_voxelizer.cpp
+    src/deposition_updater.cpp
     src/exterior_classifier.cpp
     src/gasaccess_c.cpp
     src/gas_grid.cpp
@@ -162,4 +163,28 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME gasaccess_c_api_tests COMMAND gasaccess_c_api_tests)
+
+    add_executable(gasaccess_deposition_updater_tests
+        tests/test_deposition_updater.cpp
+    )
+    target_link_libraries(gasaccess_deposition_updater_tests
+        PRIVATE GasAccess::gasaccess
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_deposition_updater_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_deposition_updater_tests PRIVATE /W4)
+    endif()
+
+    add_test(
+        NAME gasaccess_deposition_updater_tests
+        COMMAND gasaccess_deposition_updater_tests
+    )
 endif()

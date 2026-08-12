@@ -9,6 +9,7 @@ extern "C" {
 #endif
 
 typedef struct ga_grid ga_grid;
+typedef struct ga_update_result ga_update_result;
 
 typedef uint64_t ga_voxel_id;
 typedef uint8_t ga_gas_state;
@@ -82,6 +83,12 @@ typedef struct ga_classification_summary {
     ga_voxel_id closed_void_count;
 } ga_classification_summary;
 
+typedef struct ga_deposition_update_summary {
+    ga_voxel_id newly_solid_count;
+    size_t changed_voxel_count;
+    ga_classification_summary classification;
+} ga_deposition_update_summary;
+
 /* The returned thread-local message remains valid until the next C API call
  * on the same thread. It is empty after a successful status-returning call. */
 const char* ga_last_error_message(void);
@@ -118,6 +125,25 @@ ga_status ga_voxelize_atoms(
 ga_status ga_classify_exterior(
     ga_grid* grid,
     ga_classification_summary* out_summary);
+
+/* The grid must already be fully classified. ga_apply_deposition copies the
+ * small event batch and returns an owned result handle. */
+ga_status ga_apply_deposition(
+    ga_grid* grid,
+    const ga_atom* deposited_atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_update_result** out_update_result);
+void ga_update_result_destroy(ga_update_result* update_result);
+ga_status ga_update_result_get_summary(
+    const ga_update_result* update_result,
+    ga_deposition_update_summary* out_summary);
+/* The returned array is sorted, unique, and valid until the result is
+ * destroyed. It may be null when out_count is zero. */
+ga_status ga_update_result_get_changed_voxels(
+    const ga_update_result* update_result,
+    const ga_voxel_id** out_voxel_ids,
+    size_t* out_count);
 
 ga_status ga_is_voxel_outside_accessible(
     const ga_grid* grid,

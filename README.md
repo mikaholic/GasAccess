@@ -6,7 +6,8 @@ Cartesian voxel grid. Development follows the recorded phased plan in
 
 The current implementation provides Phase 1 grid geometry/topology, Phase 2
 static atom voxelization, Phase 3 exterior classification, and Phase 4 cached
-site queries with C interoperability:
+site queries with C interoperability, plus the Phase 5 deposition-update
+baseline:
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -22,7 +23,9 @@ site queries with C interoperability:
 - solid/outside/closed classification summary counts;
 - allocation-free cached queries using either a seven-voxel default stencil or
   a caller-supplied stencil of at most 27 voxel IDs;
-- an exception-safe C99 API with an opaque grid handle.
+- full connectivity recomputation after a caller-supplied deposition batch;
+- sorted changed-voxel reporting and post-update classification counts;
+- an exception-safe C99 API with opaque grid and update-result handles.
 
 The Phase 3 classifier is the correctness-reference implementation that later
 incremental update algorithms will be tested against.
@@ -44,13 +47,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build --parallel
 ```
 
-This produces the static library `build/libgasaccess.a` and five test executables:
+This produces the static library `build/libgasaccess.a` and six test executables:
 
 - `build/gasaccess_grid_tests`
 - `build/gasaccess_atom_voxelizer_tests`
 - `build/gasaccess_exterior_classifier_tests`
 - `build/gasaccess_accessibility_query_tests`
 - `build/gasaccess_c_api_tests`
+- `build/gasaccess_deposition_updater_tests`
 
 ## Test
 
@@ -66,4 +70,5 @@ To display every individual test-group result directly:
 ./build/gasaccess_exterior_classifier_tests
 ./build/gasaccess_accessibility_query_tests
 ./build/gasaccess_c_api_tests
+./build/gasaccess_deposition_updater_tests
 ```
