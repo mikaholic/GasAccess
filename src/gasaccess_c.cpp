@@ -24,6 +24,7 @@ struct ga_grid {
     }
 
     gasaccess::GasGrid gas_grid;
+    std::unique_ptr<gasaccess::DepositionUpdater> deposition_updater;
 };
 
 struct ga_update_result {
@@ -148,6 +149,34 @@ gasaccess::GasState convert_gas_state(ga_gas_state gas_state)
     default:
         throw std::invalid_argument("invalid gas state value");
     }
+}
+
+gasaccess::ConnectivityRepairMode convert_repair_mode(
+    ga_connectivity_repair_mode repair_mode)
+{
+    switch (repair_mode) {
+    case GA_CONNECTIVITY_REPAIR_AFFECTED_REGION:
+        return gasaccess::ConnectivityRepairMode::AffectedRegion;
+    case GA_CONNECTIVITY_REPAIR_FULL_RECLASSIFICATION:
+        return gasaccess::ConnectivityRepairMode::FullReclassification;
+    default:
+        throw std::invalid_argument("invalid connectivity repair mode");
+    }
+}
+
+gasaccess::DepositionUpdater& deposition_updater(
+    ga_grid& grid,
+    double precursor_radius,
+    gasaccess::ConnectivityRepairMode repair_mode)
+{
+    if (!grid.deposition_updater
+        || grid.deposition_updater->precursor_radius() != precursor_radius
+        || grid.deposition_updater->repair_mode() != repair_mode) {
+        grid.deposition_updater = std::make_unique<gasaccess::DepositionUpdater>(
+            precursor_radius,
+            repair_mode);
+    }
+    return *grid.deposition_updater;
 }
 
 void validate_c_atoms(
@@ -340,17 +369,37 @@ ga_status ga_apply_deposition(
     double precursor_radius,
     ga_update_result** out_update_result)
 {
+    return ga_apply_deposition_with_mode(
+        grid,
+        deposited_atoms,
+        atom_count,
+        precursor_radius,
+        GA_CONNECTIVITY_REPAIR_AFFECTED_REGION,
+        out_update_result);
+}
+
+ga_status ga_apply_deposition_with_mode(
+    ga_grid* grid,
+    const ga_atom* deposited_atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_connectivity_repair_mode repair_mode,
+    ga_update_result** out_update_result)
+{
     if (out_update_result != nullptr) {
         *out_update_result = nullptr;
     }
     return protect_c_api([&]() {
         require_pointer(grid, "grid pointer is null");
         require_pointer(out_update_result, "output update-result pointer is null");
+        const auto converted_repair_mode = convert_repair_mode(repair_mode);
         validate_c_atoms(*grid, deposited_atoms, atom_count, precursor_radius);
         const auto converted_atoms = convert_c_atoms(deposited_atoms, atom_count);
         auto update_result = std::make_unique<ga_update_result>();
-        update_result->update_result = gasaccess::DepositionUpdater(precursor_radius)
-            .apply_deposition(
+        update_result->update_result = deposition_updater(
+            *grid,
+            precursor_radius,
+            converted_repair_mode).apply_deposition(
                 grid->gas_grid,
                 {converted_atoms.data(), converted_atoms.size()});
         *out_update_result = update_result.release();
@@ -372,8 +421,12 @@ ga_status ga_update_result_get_summary(
         const auto& result = update_result->update_result;
         out_summary->newly_solid_count = result.newly_solid_count;
         out_summary->changed_voxel_count = result.changed_voxel_ids.size();
+        out_summary->repair_visited_voxel_count = result.repair_visited_voxel_count;
+        out_summary->repair_closed_voxel_count = result.repair_closed_voxel_count;
         out_summary->full_reclassification_performed =
             result.used_full_reclassification() ? 1U : 0U;
+        out_summary->affected_region_repair_performed =
+            result.used_affected_region_repair() ? 1U : 0U;
         out_summary->classification.solid_count = result.classification.solid_count;
         out_summary->classification.outside_accessible_count =
             result.classification.outside_accessible_count;

@@ -9,6 +9,7 @@ project(
 
 add_library(gasaccess
     src/accessibility_query.cpp
+    src/affected_region_repair.cpp
     src/atom_voxelizer.cpp
     src/deposition_updater.cpp
     src/exterior_classifier.cpp
@@ -228,6 +229,30 @@ if(BUILD_TESTING)
     add_test(
         NAME gasaccess_local_topology_filter_tests
         COMMAND gasaccess_local_topology_filter_tests
+    )
+
+    add_executable(gasaccess_affected_region_repair_tests
+        tests/test_affected_region_repair.cpp
+    )
+    target_link_libraries(gasaccess_affected_region_repair_tests
+        PRIVATE GasAccess::gasaccess
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_affected_region_repair_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_affected_region_repair_tests PRIVATE /W4)
+    endif()
+
+    add_test(
+        NAME gasaccess_affected_region_repair_tests
+        COMMAND gasaccess_affected_region_repair_tests
     )
 
     add_test(

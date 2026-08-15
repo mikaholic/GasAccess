@@ -133,7 +133,7 @@ void test_input_validation_and_multi_voxel_fallback()
     const auto result = topology_filter.evaluate(
         gas_grid,
         {removed_voxels.data(), removed_voxels.size()});
-    REQUIRE(result.decision == TopologyDecision::RequiresReclassification);
+    REQUIRE(result.decision == TopologyDecision::RequiresConnectivityRepair);
 }
 
 void test_open_region_is_proven_safe()
@@ -166,7 +166,7 @@ void test_bridge_and_source_are_inconclusive()
     const auto bridge_result = LocalTopologyFilter{}.evaluate(
         bridge_grid,
         {&bridge_voxel, 1});
-    REQUIRE(bridge_result.decision == TopologyDecision::RequiresReclassification);
+    REQUIRE(bridge_result.decision == TopologyDecision::RequiresConnectivityRepair);
     REQUIRE(bridge_result.accessible_neighbor_count == 2);
 
     auto source_spec = make_grid_spec(3, 3, 3);
@@ -179,7 +179,7 @@ void test_bridge_and_source_are_inconclusive()
     const auto source_result = LocalTopologyFilter{}.evaluate(
         source_grid,
         {&source_voxel, 1});
-    REQUIRE(source_result.decision == TopologyDecision::RequiresReclassification);
+    REQUIRE(source_result.decision == TopologyDecision::RequiresConnectivityRepair);
 }
 
 void test_closed_void_removal_is_safe()
@@ -228,14 +228,14 @@ void test_periodic_safe_path_and_periodic_bridge()
     const auto bridge_result = LocalTopologyFilter{}.evaluate(
         bridge_grid,
         {&bridge_voxel, 1});
-    REQUIRE(bridge_result.decision == TopologyDecision::RequiresReclassification);
+    REQUIRE(bridge_result.decision == TopologyDecision::RequiresConnectivityRepair);
     REQUIRE(bridge_result.accessible_neighbor_count == 2);
 }
 
 void test_exhaustive_planar_patterns_match_full_reference()
 {
     std::size_t safe_count = 0;
-    std::size_t fallback_count = 0;
+    std::size_t repair_count = 0;
     constexpr std::uint32_t pattern_count = 128;
     const std::array<VoxelCoord, 7> pattern_voxels{{
         {1, 0, 0}, {2, 0, 0}, {0, 1, 0}, {2, 1, 0},
@@ -275,14 +275,14 @@ void test_exhaustive_planar_patterns_match_full_reference()
             == reference_summary.outside_accessible_count);
         REQUIRE(actual_result.classification.closed_void_count
             == reference_summary.closed_void_count);
-        if (actual_result.used_full_reclassification()) {
-            ++fallback_count;
+        if (actual_result.used_affected_region_repair()) {
+            ++repair_count;
         } else {
             ++safe_count;
         }
     }
     REQUIRE(safe_count != 0);
-    REQUIRE(fallback_count != 0);
+    REQUIRE(repair_count != 0);
 }
 
 }  // namespace

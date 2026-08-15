@@ -452,6 +452,9 @@ int run(const Options& options)
 
     VoxelId geometry_changing_update_count = 0;
     VoxelId full_reclassification_update_count = 0;
+    VoxelId affected_region_repair_update_count = 0;
+    VoxelId repair_visited_voxel_count = 0;
+    VoxelId repair_closed_voxel_count = 0;
     VoxelId update_newly_solid_count = 0;
     VoxelId changed_state_count = 0;
     ClassificationSummary final_summary = initial_summary;
@@ -467,6 +470,11 @@ int run(const Options& options)
         if (result.used_full_reclassification()) {
             ++full_reclassification_update_count;
         }
+        if (result.used_affected_region_repair()) {
+            ++affected_region_repair_update_count;
+        }
+        repair_visited_voxel_count += result.repair_visited_voxel_count;
+        repair_closed_voxel_count += result.repair_closed_voxel_count;
         update_newly_solid_count += result.newly_solid_count;
         changed_state_count += static_cast<VoxelId>(result.changed_voxel_ids.size());
         final_summary = result.classification;
@@ -516,6 +524,12 @@ int run(const Options& options)
               << geometry_changing_update_count << '\n';
     std::cout << "full_reclassification_update_count="
               << full_reclassification_update_count << '\n';
+    std::cout << "affected_region_repair_update_count="
+              << affected_region_repair_update_count << '\n';
+    std::cout << "repair_visited_voxel_count="
+              << repair_visited_voxel_count << '\n';
+    std::cout << "repair_closed_voxel_count="
+              << repair_closed_voxel_count << '\n';
     std::cout << "update_newly_solid_count=" << update_newly_solid_count << '\n';
     std::cout << "changed_state_count=" << changed_state_count << '\n';
     std::cout << "final_solid_count=" << final_summary.solid_count << '\n';

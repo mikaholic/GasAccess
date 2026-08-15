@@ -1,6 +1,6 @@
 # GasAccess Development Plan
 
-Status: in development — Phase 7 complete
+Status: in development — Phase 8 complete
 Last updated: 2026-08-14
 
 This is the working plan for developing GasAccess as an independent C++/C
@@ -702,7 +702,7 @@ Before Phase 11:
 - [x] Phase 5: deposition with full recomputation
 - [x] Phase 6: standalone reference driver and baseline measurements
 - [x] Phase 7: conservative local topology filter
-- [ ] Phase 8: serial affected-region repair
+- [x] Phase 8: serial affected-region repair
 - [ ] Phase 9: selective reaction-site invalidation
 - [ ] Phase 10: serial scale and storage optimization
 - [ ] Phase 11: decomposition adapter and gas ghost exchange
@@ -876,3 +876,38 @@ Update this checklist only when a phase's tests and exit gate have passed.
 - Passed the full 12-case CTest suite with GCC 8.5 and C/C++ warnings treated
   as errors. Valgrind Memcheck reported zero errors and no leaks for the local
   filter, deposition updater, and pure-C API suites.
+
+#### Phase 8 completion — 2026-08-14
+
+- Added `AffectedRegionRepair`, which seeds searches only from surviving
+  `OutsideAccessible` neighbors of newly solid voxels. A fully explored
+  source-free component is relabeled `ClosedVoid`; a search stops early when
+  it reaches a reservoir source or a component already proven external.
+- Added reusable 32-bit search and repair epochs, a retained BFS frontier, and
+  retained seed storage. Ordinary calls avoid clearing visitation arrays, and
+  the frontier itself also serves as the discovered-region list.
+- Integrated affected-region repair after inconclusive Phase 7 decisions.
+  Locally safe events still skip repair, while suspected single- and
+  multi-voxel cuts no longer invoke the full classifier in production mode.
+- Added `ConnectivityRepairMode::FullReclassification` as a configurable C++
+  reference/debug path. The C API exposes the equivalent
+  `ga_apply_deposition_with_mode()` operation and reuses updater workspace on
+  its grid handle when the radius and mode remain unchanged.
+- Added update-result metrics for repair use, visited voxels, and newly closed
+  voxels in C++, C, and the standalone reference driver.
+- Verified a 21-voxel trench cavity is repaired with exactly 21 BFS visits in
+  an 81-voxel grid. Also verified removal of the only source, preservation by a
+  second source, a two-voxel cut with one closed middle component, and a
+  periodic-seam cut.
+- Compared incremental states, summaries, and sorted changed IDs against forced
+  full reclassification after every event in the existing 160-event randomized
+  suite spanning all eight periodic-axis combinations. The 128-pattern
+  exhaustive local suite also remains reference-identical.
+- Retained the million-atom initial and final Phase 6 checksums. See
+  `docs/benchmarks/PHASE8_REPAIR.md` for the locality and regression record.
+- The full state snapshot and newly-solid discovery scan remain transitional;
+  Phase 8 eliminates global connectivity traversal for affected repairs, not
+  all full-array work in the deposition pipeline.
+- Passed the full 13-case CTest suite with GCC 8.5 and C/C++ warnings treated
+  as errors. Valgrind Memcheck reported zero errors and no leaks for the repair,
+  deposition-updater, and pure-C API suites.

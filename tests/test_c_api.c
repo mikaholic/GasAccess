@@ -178,7 +178,10 @@ static void test_c_deposition_update(void)
         == GA_STATUS_SUCCESS);
     REQUIRE(update_summary.newly_solid_count == 1);
     REQUIRE(update_summary.changed_voxel_count == 3);
-    REQUIRE(update_summary.full_reclassification_performed == 1);
+    REQUIRE(update_summary.repair_visited_voxel_count == 2);
+    REQUIRE(update_summary.repair_closed_voxel_count == 2);
+    REQUIRE(update_summary.full_reclassification_performed == 0);
+    REQUIRE(update_summary.affected_region_repair_performed == 1);
     REQUIRE(update_summary.classification.solid_count == 1);
     REQUIRE(update_summary.classification.outside_accessible_count == 0);
     REQUIRE(update_summary.classification.closed_void_count == 2);
@@ -190,6 +193,28 @@ static void test_c_deposition_update(void)
     REQUIRE(changed_voxel_ids != NULL);
     REQUIRE(changed_voxel_ids[0] < changed_voxel_ids[1]);
     REQUIRE(changed_voxel_ids[1] < changed_voxel_ids[2]);
+
+    ga_update_result_destroy(update_result);
+    update_result = NULL;
+    ga_grid_destroy(grid);
+
+    grid = NULL;
+    REQUIRE(ga_grid_create(&grid_spec, &grid) == GA_STATUS_SUCCESS);
+    REQUIRE(ga_classify_exterior(grid, &(ga_classification_summary){0})
+        == GA_STATUS_SUCCESS);
+    REQUIRE(ga_apply_deposition_with_mode(
+        grid,
+        &atom,
+        1,
+        0.0,
+        GA_CONNECTIVITY_REPAIR_FULL_RECLASSIFICATION,
+        &update_result) == GA_STATUS_SUCCESS);
+    REQUIRE(ga_update_result_get_summary(update_result, &update_summary)
+        == GA_STATUS_SUCCESS);
+    REQUIRE(update_summary.full_reclassification_performed == 1);
+    REQUIRE(update_summary.affected_region_repair_performed == 0);
+    REQUIRE(update_summary.repair_visited_voxel_count == 0);
+    REQUIRE(update_summary.repair_closed_voxel_count == 0);
 
     ga_update_result_destroy(update_result);
     ga_update_result_destroy(NULL);
@@ -223,6 +248,14 @@ static void test_c_error_handling(void)
         &atom,
         1,
         0.0,
+        &update_result) == GA_STATUS_INVALID_ARGUMENT);
+    REQUIRE(update_result == NULL);
+    REQUIRE(ga_apply_deposition_with_mode(
+        grid,
+        &atom,
+        1,
+        0.0,
+        (ga_connectivity_repair_mode)99,
         &update_result) == GA_STATUS_INVALID_ARGUMENT);
     REQUIRE(update_result == NULL);
     REQUIRE(ga_is_stencil_accessible(

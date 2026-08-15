@@ -13,6 +13,7 @@ typedef struct ga_update_result ga_update_result;
 
 typedef uint64_t ga_voxel_id;
 typedef uint8_t ga_gas_state;
+typedef uint8_t ga_connectivity_repair_mode;
 typedef int32_t ga_status;
 
 #define GA_STATUS_SUCCESS ((ga_status)0)
@@ -26,6 +27,11 @@ typedef int32_t ga_status;
 #define GA_GAS_STATE_SOLID ((ga_gas_state)1)
 #define GA_GAS_STATE_OUTSIDE_ACCESSIBLE ((ga_gas_state)2)
 #define GA_GAS_STATE_CLOSED_VOID ((ga_gas_state)3)
+
+#define GA_CONNECTIVITY_REPAIR_AFFECTED_REGION \
+    ((ga_connectivity_repair_mode)0)
+#define GA_CONNECTIVITY_REPAIR_FULL_RECLASSIFICATION \
+    ((ga_connectivity_repair_mode)1)
 
 #define GA_MAX_SITE_VOXEL_COUNT ((size_t)27)
 
@@ -86,9 +92,12 @@ typedef struct ga_classification_summary {
 typedef struct ga_deposition_update_summary {
     ga_voxel_id newly_solid_count;
     size_t changed_voxel_count;
-    /* Nonzero when the conservative topology filter used the full reference
-     * classifier for this update. */
+    /* Repair traversal work and the number of gas voxels relabeled closed. */
+    ga_voxel_id repair_visited_voxel_count;
+    ga_voxel_id repair_closed_voxel_count;
+    /* At most one of these method flags is nonzero for an update. */
     uint8_t full_reclassification_performed;
+    uint8_t affected_region_repair_performed;
     ga_classification_summary classification;
 } ga_deposition_update_summary;
 
@@ -136,6 +145,15 @@ ga_status ga_apply_deposition(
     const ga_atom* deposited_atoms,
     size_t atom_count,
     double precursor_radius,
+    ga_update_result** out_update_result);
+/* Equivalent to ga_apply_deposition with an explicit incremental or full
+ * reference repair mode. */
+ga_status ga_apply_deposition_with_mode(
+    ga_grid* grid,
+    const ga_atom* deposited_atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_connectivity_repair_mode repair_mode,
     ga_update_result** out_update_result);
 void ga_update_result_destroy(ga_update_result* update_result);
 ga_status ga_update_result_get_summary(

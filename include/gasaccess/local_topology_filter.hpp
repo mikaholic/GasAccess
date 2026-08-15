@@ -10,7 +10,7 @@ namespace gasaccess {
 
 enum class TopologyDecision : std::uint8_t {
     Safe = 0,
-    RequiresReclassification = 1
+    RequiresConnectivityRepair = 1
 };
 
 struct RemovedVoxel {
@@ -24,7 +24,7 @@ struct RemovedVoxelView {
 };
 
 struct TopologyCheckResult {
-    TopologyDecision decision = TopologyDecision::RequiresReclassification;
+    TopologyDecision decision = TopologyDecision::RequiresConnectivityRepair;
     std::size_t accessible_neighbor_count = 0;
     std::size_t visited_voxel_count = 0;
 
@@ -36,7 +36,7 @@ public:
     // The grid is the post-deposition grid, while previous_state describes
     // each newly solid voxel immediately before deposition. The initial
     // implementation proves only single-voxel removals; larger changes return
-    // RequiresReclassification conservatively.
+    // RequiresConnectivityRepair conservatively.
     TopologyCheckResult evaluate(
         const GasGrid& gas_grid,
         RemovedVoxelView removed_voxel_view) const;

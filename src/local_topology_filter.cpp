@@ -77,7 +77,7 @@ TopologyCheckResult LocalTopologyFilter::evaluate(
         return {TopologyDecision::Safe, 0, 0};
     }
     if (removed_voxel_view.count != 1) {
-        return {TopologyDecision::RequiresReclassification, 0, 0};
+        return {TopologyDecision::RequiresConnectivityRepair, 0, 0};
     }
 
     const auto& removed_voxel = removed_voxel_view.removed_voxels[0];
@@ -85,7 +85,7 @@ TopologyCheckResult LocalTopologyFilter::evaluate(
         return {TopologyDecision::Safe, 0, 0};
     }
     if (gas_grid.is_reservoir_source(removed_voxel.voxel_id)) {
-        return {TopologyDecision::RequiresReclassification, 0, 0};
+        return {TopologyDecision::RequiresConnectivityRepair, 0, 0};
     }
 
     std::array<VoxelId, 6> accessible_neighbors{};
@@ -139,7 +139,7 @@ TopologyCheckResult LocalTopologyFilter::evaluate(
             visited_count,
             accessible_neighbors[index])) {
             return {
-                TopologyDecision::RequiresReclassification,
+                TopologyDecision::RequiresConnectivityRepair,
                 accessible_neighbor_count,
                 visited_count
             };

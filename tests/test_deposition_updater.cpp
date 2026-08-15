@@ -20,6 +20,7 @@ using gasaccess::Atom;
 using gasaccess::AtomView;
 using gasaccess::AtomVoxelizer;
 using gasaccess::ClassificationSummary;
+using gasaccess::ConnectivityRepairMode;
 using gasaccess::DepositionUpdateResult;
 using gasaccess::DepositionUpdater;
 using gasaccess::ExteriorClassifier;
@@ -263,7 +264,8 @@ void test_trench_pinch_off()
             gas_grid,
             {sidewall_atoms.data(), sidewall_atoms.size()});
         REQUIRE(sidewall_result.newly_solid_count == 2);
-        REQUIRE(sidewall_result.used_full_reclassification());
+        REQUIRE(sidewall_result.used_affected_region_repair());
+        REQUIRE(!sidewall_result.used_full_reclassification());
         REQUIRE(GasAccessibilityQuery(gas_grid).is_site_accessible({2.5, 0.5, 1.5}));
     }
 
@@ -274,7 +276,10 @@ void test_trench_pinch_off()
     const auto result = updater.apply_deposition(gas_grid, {&roof_atom, 1});
 
     REQUIRE(result.geometry_changed());
-    REQUIRE(result.used_full_reclassification());
+    REQUIRE(result.used_affected_region_repair());
+    REQUIRE(!result.used_full_reclassification());
+    REQUIRE(result.repair_closed_voxel_count == 3);
+    REQUIRE(result.repair_visited_voxel_count == 3);
     REQUIRE(result.newly_solid_count == 1);
     REQUIRE(result.classification.solid_count == 9);
     REQUIRE(result.classification.outside_accessible_count == 13);
@@ -307,7 +312,9 @@ void test_closure_across_periodic_seam()
         {&seam_atom, 1});
 
     REQUIRE(result.newly_solid_count == 1);
-    REQUIRE(result.used_full_reclassification());
+    REQUIRE(result.used_affected_region_repair());
+    REQUIRE(!result.used_full_reclassification());
+    REQUIRE(result.repair_closed_voxel_count == 2);
     REQUIRE(result.classification.solid_count == 2);
     REQUIRE(result.classification.outside_accessible_count == 1);
     REQUIRE(result.classification.closed_void_count == 2);
@@ -332,7 +339,9 @@ void test_deposition_blocks_only_explicit_source()
         {&source_atom, 1});
 
     REQUIRE(result.newly_solid_count == 1);
-    REQUIRE(result.used_full_reclassification());
+    REQUIRE(result.used_affected_region_repair());
+    REQUIRE(!result.used_full_reclassification());
+    REQUIRE(result.repair_closed_voxel_count == 2);
     REQUIRE(result.changed_voxel_ids.size() == 3);
     REQUIRE(result.classification.solid_count == 1);
     REQUIRE(result.classification.outside_accessible_count == 0);
@@ -351,7 +360,7 @@ void test_random_sequences_match_explicit_reference()
     std::uniform_int_distribution<int> batch_distribution(1, 2);
     constexpr double precursor_radius = 0.15;
     std::size_t local_safe_count = 0;
-    std::size_t full_reclassification_count = 0;
+    std::size_t affected_region_repair_count = 0;
 
     for (unsigned int periodic_mask = 0; periodic_mask < 8U; ++periodic_mask) {
         auto grid_spec = make_grid_spec(5, 4, 3);
@@ -399,7 +408,9 @@ void test_random_sequences_match_explicit_reference()
             require_same_states(actual_grid, reference_grid);
             if (actual_result.geometry_changed()) {
                 if (actual_result.used_full_reclassification()) {
-                    ++full_reclassification_count;
+                    throw TestFailure("default updater unexpectedly used full classification");
+                } else if (actual_result.used_affected_region_repair()) {
+                    ++affected_region_repair_count;
                 } else {
                     ++local_safe_count;
                 }
@@ -407,7 +418,30 @@ void test_random_sequences_match_explicit_reference()
         }
     }
     REQUIRE(local_safe_count != 0);
-    REQUIRE(full_reclassification_count != 0);
+    REQUIRE(affected_region_repair_count != 0);
+}
+
+void test_forced_reference_mode()
+{
+    auto grid_spec = make_grid_spec(5, 5, 5);
+    grid_spec.reservoir_faces.z_high = true;
+    GasGrid gas_grid(grid_spec);
+    ExteriorClassifier{}.classify(gas_grid);
+    const DepositionUpdater updater(
+        0.0,
+        ConnectivityRepairMode::FullReclassification);
+    REQUIRE(updater.repair_mode() == ConnectivityRepairMode::FullReclassification);
+
+    const Atom atom{{2.5, 2.5, 2.5}, 0.0};
+    const auto result = updater.apply_deposition(gas_grid, {&atom, 1});
+    REQUIRE(result.used_full_reclassification());
+    REQUIRE(!result.used_affected_region_repair());
+    REQUIRE(result.repair_visited_voxel_count == 0);
+    REQUIRE(result.repair_closed_voxel_count == 0);
+
+    REQUIRE_THROWS_AS(
+        DepositionUpdater(0.0, static_cast<ConnectivityRepairMode>(99)),
+        std::invalid_argument);
 }
 
 }  // namespace
@@ -424,7 +458,8 @@ int main()
         {"periodic-seam closure", test_closure_across_periodic_seam},
         {"blocking the only explicit source", test_deposition_blocks_only_explicit_source},
         {"random sequences match explicit reference",
-         test_random_sequences_match_explicit_reference}
+         test_random_sequences_match_explicit_reference},
+        {"forced full-reference mode", test_forced_reference_mode}
     };
 
     std::size_t failure_count = 0;
