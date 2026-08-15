@@ -86,6 +86,9 @@ typedef struct ga_classification_summary {
 typedef struct ga_deposition_update_summary {
     ga_voxel_id newly_solid_count;
     size_t changed_voxel_count;
+    /* Nonzero when the conservative topology filter used the full reference
+     * classifier for this update. */
+    uint8_t full_reclassification_performed;
     ga_classification_summary classification;
 } ga_deposition_update_summary;
 

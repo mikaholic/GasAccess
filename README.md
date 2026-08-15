@@ -7,7 +7,8 @@ Cartesian voxel grid. Development follows the recorded phased plan in
 The current implementation provides Phase 1 grid geometry/topology, Phase 2
 static atom voxelization, Phase 3 exterior classification, Phase 4 cached site
 queries with C interoperability, the Phase 5 deposition-update baseline, and
-the Phase 6 standalone reference driver:
+the Phase 6 standalone reference driver, plus the Phase 7 conservative local
+topology filter:
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -23,7 +24,9 @@ the Phase 6 standalone reference driver:
 - solid/outside/closed classification summary counts;
 - allocation-free cached queries using either a seven-voxel default stencil or
   a caller-supplied stencil of at most 27 voxel IDs;
-- full connectivity recomputation after a caller-supplied deposition batch;
+- fixed-capacity `3x3x3` local connectivity checks for single-voxel removal;
+- conservative full-classification fallback for sources, suspected pinch-offs,
+  and multi-voxel changes;
 - sorted changed-voxel reporting and post-update classification counts;
 - an exception-safe C99 API with opaque grid and update-result handles;
 - deterministic open-trench, sealed-trench, and bulk workload generation;
@@ -50,7 +53,7 @@ cmake --build build --parallel
 ```
 
 This produces the static library `build/libgasaccess.a`, the standalone
-`build/gasaccess_reference_driver`, and six dedicated test executables:
+`build/gasaccess_reference_driver`, and seven dedicated test executables:
 
 - `build/gasaccess_grid_tests`
 - `build/gasaccess_atom_voxelizer_tests`
@@ -58,6 +61,7 @@ This produces the static library `build/libgasaccess.a`, the standalone
 - `build/gasaccess_accessibility_query_tests`
 - `build/gasaccess_c_api_tests`
 - `build/gasaccess_deposition_updater_tests`
+- `build/gasaccess_local_topology_filter_tests`
 
 ## Test
 
@@ -74,6 +78,7 @@ To display every individual test-group result directly:
 ./build/gasaccess_accessibility_query_tests
 ./build/gasaccess_c_api_tests
 ./build/gasaccess_deposition_updater_tests
+./build/gasaccess_local_topology_filter_tests
 ```
 
 ## Reference driver
@@ -102,10 +107,12 @@ Run a deterministic million-atom synthetic structure:
 
 The output uses one `key=value` field per line so it can be archived or parsed
 by benchmark automation. Timings cover grid construction, atom generation,
-voxelization, initial classification, cached queries, and Phase 5 full-update
-recomputation. Memory output separates the exact one-byte-per-voxel persistent
-state from a traversal-frontier logical-payload bound and whole-process peak
-RSS.
+voxelization, initial classification, cached queries, and deposition updates.
+It also reports how many updates required full reclassification. Memory output
+separates the exact one-byte-per-voxel persistent state from a traversal-frontier
+logical-payload bound and whole-process peak RSS.
 
 The recorded Phase 6 environment, commands, results, and interpretation are in
 [`docs/benchmarks/PHASE6_BASELINE.md`](docs/benchmarks/PHASE6_BASELINE.md).
+The first local-filter comparison is in
+[`docs/benchmarks/PHASE7_FILTER.md`](docs/benchmarks/PHASE7_FILTER.md).

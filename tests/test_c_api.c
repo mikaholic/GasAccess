@@ -178,6 +178,7 @@ static void test_c_deposition_update(void)
         == GA_STATUS_SUCCESS);
     REQUIRE(update_summary.newly_solid_count == 1);
     REQUIRE(update_summary.changed_voxel_count == 3);
+    REQUIRE(update_summary.full_reclassification_performed == 1);
     REQUIRE(update_summary.classification.solid_count == 1);
     REQUIRE(update_summary.classification.outside_accessible_count == 0);
     REQUIRE(update_summary.classification.closed_void_count == 2);

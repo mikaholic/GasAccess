@@ -451,6 +451,7 @@ int run(const Options& options)
     }
 
     VoxelId geometry_changing_update_count = 0;
+    VoxelId full_reclassification_update_count = 0;
     VoxelId update_newly_solid_count = 0;
     VoxelId changed_state_count = 0;
     ClassificationSummary final_summary = initial_summary;
@@ -462,6 +463,9 @@ int run(const Options& options)
             AtomView{&update_atom, 1});
         if (result.geometry_changed()) {
             ++geometry_changing_update_count;
+        }
+        if (result.used_full_reclassification()) {
+            ++full_reclassification_update_count;
         }
         update_newly_solid_count += result.newly_solid_count;
         changed_state_count += static_cast<VoxelId>(result.changed_voxel_ids.size());
@@ -510,6 +514,8 @@ int run(const Options& options)
     std::cout << "update_count_performed=" << update_atoms.size() << '\n';
     std::cout << "geometry_changing_update_count="
               << geometry_changing_update_count << '\n';
+    std::cout << "full_reclassification_update_count="
+              << full_reclassification_update_count << '\n';
     std::cout << "update_newly_solid_count=" << update_newly_solid_count << '\n';
     std::cout << "changed_state_count=" << changed_state_count << '\n';
     std::cout << "final_solid_count=" << final_summary.solid_count << '\n';

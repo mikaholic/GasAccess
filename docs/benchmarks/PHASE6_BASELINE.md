@@ -2,6 +2,11 @@
 
 Date: 2026-08-12
 
+Code baseline: commit `ac2bbf9` (before the Phase 7 incremental filter). Current
+development builds may produce faster update timings while retaining these
+state checksums. The Phase 7 comparison is recorded in
+[`PHASE7_FILTER.md`](PHASE7_FILTER.md).
+
 This record establishes a reproducible correctness and turnaround-time baseline
 before incremental connectivity algorithms are introduced. It uses generated
 structures because the production atomic-structure format and representative

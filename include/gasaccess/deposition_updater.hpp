@@ -3,6 +3,7 @@
 
 #include "gasaccess/atom_voxelizer.hpp"
 #include "gasaccess/exterior_classifier.hpp"
+#include "gasaccess/local_topology_filter.hpp"
 
 #include <vector>
 
@@ -12,8 +13,10 @@ struct DepositionUpdateResult {
     VoxelId newly_solid_count = 0;
     std::vector<VoxelId> changed_voxel_ids{};
     ClassificationSummary classification{};
+    bool full_reclassification_performed = false;
 
     bool geometry_changed() const noexcept;
+    bool used_full_reclassification() const noexcept;
 };
 
 class DepositionUpdater {
@@ -31,6 +34,7 @@ public:
 
 private:
     AtomVoxelizer atom_voxelizer_;
+    LocalTopologyFilter local_topology_filter_;
 };
 
 }  // namespace gasaccess

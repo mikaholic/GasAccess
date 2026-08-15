@@ -1,0 +1,53 @@
+#ifndef GASACCESS_LOCAL_TOPOLOGY_FILTER_HPP
+#define GASACCESS_LOCAL_TOPOLOGY_FILTER_HPP
+
+#include "gasaccess/gas_grid.hpp"
+
+#include <cstddef>
+#include <cstdint>
+
+namespace gasaccess {
+
+enum class TopologyDecision : std::uint8_t {
+    Safe = 0,
+    RequiresReclassification = 1
+};
+
+struct RemovedVoxel {
+    VoxelId voxel_id = 0;
+    GasState previous_state = GasState::Unclassified;
+};
+
+struct RemovedVoxelView {
+    const RemovedVoxel* removed_voxels = nullptr;
+    std::size_t count = 0;
+};
+
+struct TopologyCheckResult {
+    TopologyDecision decision = TopologyDecision::RequiresReclassification;
+    std::size_t accessible_neighbor_count = 0;
+    std::size_t visited_voxel_count = 0;
+
+    bool is_safe() const noexcept;
+};
+
+class LocalTopologyFilter {
+public:
+    // The grid is the post-deposition grid, while previous_state describes
+    // each newly solid voxel immediately before deposition. The initial
+    // implementation proves only single-voxel removals; larger changes return
+    // RequiresReclassification conservatively.
+    TopologyCheckResult evaluate(
+        const GasGrid& gas_grid,
+        RemovedVoxelView removed_voxel_view) const;
+
+private:
+    static bool is_in_local_neighborhood(
+        const GasGrid& gas_grid,
+        VoxelId center_voxel_id,
+        VoxelId candidate_voxel_id);
+};
+
+}  // namespace gasaccess
+
+#endif

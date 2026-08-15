@@ -14,6 +14,7 @@ add_library(gasaccess
     src/exterior_classifier.cpp
     src/gasaccess_c.cpp
     src/gas_grid.cpp
+    src/local_topology_filter.cpp
 )
 add_library(GasAccess::gasaccess ALIAS gasaccess)
 
@@ -203,6 +204,30 @@ if(BUILD_TESTING)
     add_test(
         NAME gasaccess_deposition_updater_tests
         COMMAND gasaccess_deposition_updater_tests
+    )
+
+    add_executable(gasaccess_local_topology_filter_tests
+        tests/test_local_topology_filter.cpp
+    )
+    target_link_libraries(gasaccess_local_topology_filter_tests
+        PRIVATE GasAccess::gasaccess
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_local_topology_filter_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_local_topology_filter_tests PRIVATE /W4)
+    endif()
+
+    add_test(
+        NAME gasaccess_local_topology_filter_tests
+        COMMAND gasaccess_local_topology_filter_tests
     )
 
     add_test(

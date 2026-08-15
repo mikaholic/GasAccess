@@ -1,7 +1,7 @@
 # GasAccess Development Plan
 
-Status: in development — Phase 6 complete
-Last updated: 2026-08-12
+Status: in development — Phase 7 complete
+Last updated: 2026-08-14
 
 This is the working plan for developing GasAccess as an independent C++/C
 library and later integrating it with an MPI-parallel kinetic Monte Carlo
@@ -701,7 +701,7 @@ Before Phase 11:
 - [x] Phase 4: cached reaction-site queries and C interface
 - [x] Phase 5: deposition with full recomputation
 - [x] Phase 6: standalone reference driver and baseline measurements
-- [ ] Phase 7: conservative local topology filter
+- [x] Phase 7: conservative local topology filter
 - [ ] Phase 8: serial affected-region repair
 - [ ] Phase 9: selective reaction-site invalidation
 - [ ] Phase 10: serial scale and storage optimization
@@ -844,3 +844,35 @@ Update this checklist only when a phase's tests and exit gate have passed.
 - Deferred the production structure-file adapter until the file format and a
   representative input are supplied, as required by the information
   checkpoint before this phase uses external structures.
+
+#### Phase 7 completion — 2026-08-14
+
+- Added `LocalTopologyFilter` with a fixed-capacity `3x3x3` six-neighbor search
+  that performs no dynamic allocation. It proves a single removed gas voxel
+  safe only when all surviving accessible neighbors reconnect locally.
+- Treats removal of a reservoir source, a locally disconnected neighbor set,
+  and every multi-voxel change as requiring full reference reclassification.
+  Blocking an already closed-void voxel and accessible removals with zero or
+  one surviving accessible neighbor are safe under the documented classified
+  input contract.
+- Integrated the filter into `DepositionUpdater`. Proven-safe updates preserve
+  cached accessibility and adjust summary counts locally; inconclusive updates
+  retain the exact Phase 5 classifier and changed-state diff as a fallback.
+- Added `full_reclassification_performed` reporting to the C++ and C deposition
+  results and added a matching counter to the standalone reference driver.
+- Verified the safe/fallback decision against full reclassification for all
+  128 occupancy patterns around a center voxel in a `3x3x1` fixture and for 160
+  deterministic event batches spanning all eight periodic-axis combinations.
+- Added direct tests for open-space removal, a narrow bridge, explicit-source
+  removal, closed-void removal, multi-voxel fallback, a periodic local bypass,
+  and a periodic-seam bridge.
+- Retained identical initial and final checksums on the million-atom Phase 6
+  workload. All three sample updates were proven safe; total update time fell
+  from 82.267 ms to 24.625 ms in the single-run comparison recorded in
+  `docs/benchmarks/PHASE7_FILTER.md`.
+- The updater still performs transitional full-array snapshot and discovery
+  scans. Removing those operations is intentionally left to later serial
+  storage/update optimization rather than expanding the topology-filter phase.
+- Passed the full 12-case CTest suite with GCC 8.5 and C/C++ warnings treated
+  as errors. Valgrind Memcheck reported zero errors and no leaks for the local
+  filter, deposition updater, and pure-C API suites.

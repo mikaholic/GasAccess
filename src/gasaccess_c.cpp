@@ -372,6 +372,8 @@ ga_status ga_update_result_get_summary(
         const auto& result = update_result->update_result;
         out_summary->newly_solid_count = result.newly_solid_count;
         out_summary->changed_voxel_count = result.changed_voxel_ids.size();
+        out_summary->full_reclassification_performed =
+            result.used_full_reclassification() ? 1U : 0U;
         out_summary->classification.solid_count = result.classification.solid_count;
         out_summary->classification.outside_accessible_count =
             result.classification.outside_accessible_count;

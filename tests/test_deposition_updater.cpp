@@ -203,6 +203,7 @@ void test_no_op_and_overlapping_deposition()
     const DepositionUpdater updater(0.2);
     const auto repeated_result = updater.apply_deposition(gas_grid, {&atom, 1});
     REQUIRE(!repeated_result.geometry_changed());
+    REQUIRE(!repeated_result.used_full_reclassification());
     REQUIRE(repeated_result.newly_solid_count == 0);
     REQUIRE(repeated_result.changed_voxel_ids.empty());
     REQUIRE(summaries_equal(repeated_result.classification, initial_summary));
@@ -210,9 +211,39 @@ void test_no_op_and_overlapping_deposition()
 
     const auto empty_result = updater.apply_deposition(gas_grid, {nullptr, 0});
     REQUIRE(!empty_result.geometry_changed());
+    REQUIRE(!empty_result.used_full_reclassification());
     REQUIRE(empty_result.changed_voxel_ids.empty());
     REQUIRE(summaries_equal(empty_result.classification, initial_summary));
     REQUIRE(copy_states(gas_grid) == states_before);
+}
+
+void test_locally_safe_deposition_skips_full_reclassification()
+{
+    auto grid_spec = make_grid_spec(5, 5, 5);
+    grid_spec.reservoir_faces.z_high = true;
+    GasGrid actual_grid(grid_spec);
+    GasGrid reference_grid(grid_spec);
+    ExteriorClassifier{}.classify(actual_grid);
+    ExteriorClassifier{}.classify(reference_grid);
+
+    const Atom atom{{2.5, 2.5, 2.5}, 0.0};
+    const auto actual_result = DepositionUpdater(0.0).apply_deposition(
+        actual_grid,
+        {&atom, 1});
+    const auto reference_result = apply_reference_update(
+        reference_grid,
+        AtomVoxelizer(0.0),
+        {&atom, 1});
+
+    REQUIRE(actual_result.geometry_changed());
+    REQUIRE(!actual_result.used_full_reclassification());
+    REQUIRE(actual_result.changed_voxel_ids == std::vector<VoxelId>({
+        actual_grid.voxel_id({2, 2, 2})
+    }));
+    REQUIRE(summaries_equal(
+        actual_result.classification,
+        reference_result.classification));
+    require_same_states(actual_grid, reference_grid);
 }
 
 void test_trench_pinch_off()
@@ -232,6 +263,7 @@ void test_trench_pinch_off()
             gas_grid,
             {sidewall_atoms.data(), sidewall_atoms.size()});
         REQUIRE(sidewall_result.newly_solid_count == 2);
+        REQUIRE(sidewall_result.used_full_reclassification());
         REQUIRE(GasAccessibilityQuery(gas_grid).is_site_accessible({2.5, 0.5, 1.5}));
     }
 
@@ -242,6 +274,7 @@ void test_trench_pinch_off()
     const auto result = updater.apply_deposition(gas_grid, {&roof_atom, 1});
 
     REQUIRE(result.geometry_changed());
+    REQUIRE(result.used_full_reclassification());
     REQUIRE(result.newly_solid_count == 1);
     REQUIRE(result.classification.solid_count == 9);
     REQUIRE(result.classification.outside_accessible_count == 13);
@@ -274,6 +307,7 @@ void test_closure_across_periodic_seam()
         {&seam_atom, 1});
 
     REQUIRE(result.newly_solid_count == 1);
+    REQUIRE(result.used_full_reclassification());
     REQUIRE(result.classification.solid_count == 2);
     REQUIRE(result.classification.outside_accessible_count == 1);
     REQUIRE(result.classification.closed_void_count == 2);
@@ -298,6 +332,7 @@ void test_deposition_blocks_only_explicit_source()
         {&source_atom, 1});
 
     REQUIRE(result.newly_solid_count == 1);
+    REQUIRE(result.used_full_reclassification());
     REQUIRE(result.changed_voxel_ids.size() == 3);
     REQUIRE(result.classification.solid_count == 1);
     REQUIRE(result.classification.outside_accessible_count == 0);
@@ -315,6 +350,8 @@ void test_random_sequences_match_explicit_reference()
     std::uniform_int_distribution<int> z_distribution(0, 2);
     std::uniform_int_distribution<int> batch_distribution(1, 2);
     constexpr double precursor_radius = 0.15;
+    std::size_t local_safe_count = 0;
+    std::size_t full_reclassification_count = 0;
 
     for (unsigned int periodic_mask = 0; periodic_mask < 8U; ++periodic_mask) {
         auto grid_spec = make_grid_spec(5, 4, 3);
@@ -360,8 +397,17 @@ void test_random_sequences_match_explicit_reference()
                 reference_result.classification));
             require_valid_changed_ids(actual_result);
             require_same_states(actual_grid, reference_grid);
+            if (actual_result.geometry_changed()) {
+                if (actual_result.used_full_reclassification()) {
+                    ++full_reclassification_count;
+                } else {
+                    ++local_safe_count;
+                }
+            }
         }
     }
+    REQUIRE(local_safe_count != 0);
+    REQUIRE(full_reclassification_count != 0);
 }
 
 }  // namespace
@@ -372,6 +418,8 @@ int main()
         {"classified-grid and batch validation",
          test_requires_classified_grid_and_valid_batch},
         {"no-op and overlapping deposition", test_no_op_and_overlapping_deposition},
+        {"locally safe deposition skips full reclassification",
+         test_locally_safe_deposition_skips_full_reclassification},
         {"trench pinch-off", test_trench_pinch_off},
         {"periodic-seam closure", test_closure_across_periodic_seam},
         {"blocking the only explicit source", test_deposition_blocks_only_explicit_source},
