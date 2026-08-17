@@ -1,7 +1,7 @@
 # GasAccess Development Plan
 
-Status: in development — Phase 8 complete
-Last updated: 2026-08-14
+Status: in development — Phase 9 complete
+Last updated: 2026-08-17
 
 This is the working plan for developing GasAccess as an independent C++/C
 library and later integrating it with an MPI-parallel kinetic Monte Carlo
@@ -193,14 +193,19 @@ class GasAccess {
 public:
     void build_from_atoms(AtomView atoms);
     void classify_all();
-    bool is_site_accessible(const SiteProbe& site) const;
     UpdateResult apply_deposition(AtomView new_atoms);
+};
+
+class GasAccessibilityQuery {
+public:
+    bool is_site_accessible(const Point3& atom_position) const;
 };
 ```
 
-`UpdateResult` will eventually expose changed voxel identifiers and, when site
-registration is enabled, affected reaction-site identifiers. The permanent
-reference API will also provide an explicit full recomputation for validation.
+`UpdateResult` exposes changed voxel identifiers for diagnostics and optional
+future optimizations. They are not part of the required KMC query path. The
+permanent reference API also provides an explicit full recomputation for
+validation.
 
 The core API accepts in-memory array views. Atomic-structure file readers are
 adapters, preventing a particular simulation file format from becoming a core
@@ -439,28 +444,56 @@ Exit gate:
 
 Expected production code: 400-650 lines.
 
-#### Phase 9: selective reaction-site invalidation
+#### Phase 9: single-site KMC query contract
 
 Scope:
 
-- Return stable identifiers for voxels whose accessibility changed.
-- Add optional registration of reaction sites and their nearby gas voxels.
-- Maintain a reverse voxel-to-site mapping or an integration callback so only
-  affected propensities need recomputation.
-- Avoid forcing KMC-specific types into the core library.
+- Make the existing call below the only required GasAccess operation while the
+  KMC iterates over atoms or reaction sites:
+
+  ```cpp
+  bool accessible = query.is_site_accessible(atom_position);
+  ```
+
+- Define `atom_position` as the atom's current position supplied by KMC,
+  including any position change produced by MD relaxation.
+- Document that the default contact stencil is the voxel containing the atom
+  plus its six face-neighbor voxels. The result is true when at least one of
+  those voxels is `OutsideAccessible`.
+- Confirm that a query object can be constructed once and reused: it references
+  the current grid state and therefore observes connectivity updates without
+  rebuilding or registering atoms.
+- Keep reaction creation, rate calculation, atom storage, MD synchronization,
+  and KMC iteration outside GasAccess.
+- Add no atom identifiers, atom registry, callbacks, affected-atom lists,
+  batch-query requirement, or changed-voxel handoff requirement.
+- Retain existing auxiliary APIs, including changed voxel IDs and custom voxel
+  stencils, but do not require the KMC integration to use them.
 
 Tests:
 
-- Changed sites match a full scan of all registered sites.
-- Unaffected sites are not reported.
-- Multiple changed voxels do not duplicate site notifications.
-- Periodic-boundary sites map to the correct wrapped voxels.
+- A minimal mock KMC loop calls only
+  `query.is_site_accessible(atom_position)` for each atom.
+- Atoms adjacent to exterior-connected gas return true, while atoms adjacent
+  only to solid or closed-void gas return false.
+- The same query object returns the new result after a deposition update creates
+  a pinch-off or otherwise changes cached connectivity.
+- Queries use the atom's latest supplied position after a simulated MD move.
+- Periodic seams and non-periodic out-of-domain positions obey the documented
+  boundary rules.
+- The hot query remains allocation-free and has a fixed upper bound on voxel
+  state inspections.
 
 Exit gate:
 
-- The library can drive selective KMC propensity updates without global scans.
+- The mock KMC integration needs only
+  `query.is_site_accessible(atom_position)` to decide whether a gas-dependent
+  reaction may be considered.
+- The answer always reflects the latest completed GasAccess connectivity update
+  and no KMC-owned atom or reaction data is stored by GasAccess.
 
-Expected production code: 250-450 lines.
+Expected production/documentation code: 25-100 lines because the core query
+already exists; most work is integration testing and contract documentation.
 
 #### Phase 10: serial scale and storage optimization
 
@@ -685,6 +718,12 @@ Before Phase 6 uses the supplied structure:
 - target hardware and preferred compiler;
 - required output or visualization format.
 
+Before Phase 9:
+
+- confirm that KMC supplies the current atom position at query time;
+- confirm that the containing voxel plus six face neighbors is the desired
+  atom-to-gas contact stencil.
+
 Before Phase 11:
 
 - KMC decomposition and ghost-exchange interfaces;
@@ -703,7 +742,7 @@ Before Phase 11:
 - [x] Phase 6: standalone reference driver and baseline measurements
 - [x] Phase 7: conservative local topology filter
 - [x] Phase 8: serial affected-region repair
-- [ ] Phase 9: selective reaction-site invalidation
+- [x] Phase 9: single-site KMC query contract
 - [ ] Phase 10: serial scale and storage optimization
 - [ ] Phase 11: decomposition adapter and gas ghost exchange
 - [ ] Phase 12: distributed initial flood-fill
@@ -911,3 +950,25 @@ Update this checklist only when a phase's tests and exit gate have passed.
 - Passed the full 13-case CTest suite with GCC 8.5 and C/C++ warnings treated
   as errors. Valgrind Memcheck reported zero errors and no leaks for the repair,
   deposition-updater, and pure-C API suites.
+
+#### Phase 9 completion — 2026-08-17
+
+- Finalized `query.is_site_accessible(atom_position)` as the sole operation
+  required from GasAccess inside the KMC atom or reaction-site loop.
+- Added a focused mock-KMC integration suite that performs this single call for
+  every site and leaves atom storage, reaction state, and iteration under KMC
+  ownership.
+- Verified that one query object observes an affected-region pinch-off after a
+  deposition update without being reconstructed or receiving changed-voxel
+  identifiers.
+- Verified that KMC can pass a new atom position directly after a simulated MD
+  move; GasAccess stores no atom identifier, registry, or position cache.
+- Verified periodic wrapping and rejection outside a non-periodic boundary
+  through the same position-only query contract.
+- Documented the default containing-plus-six-face-neighbor stencil, required
+  update ordering, bounded seven-state lookup, and lack of flood-fill, MPI,
+  callback, or allocation on the hot query path.
+- Passed the full 14-case CTest suite with GCC 8.5 and C/C++ warnings treated as
+  errors. Valgrind Memcheck reported zero errors and no leaks for both the KMC
+  integration and accessibility-query suites; the existing allocation wrapper
+  continued to report zero dynamic allocations across hot queries.

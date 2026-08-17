@@ -159,6 +159,30 @@ if(BUILD_TESTING)
         COMMAND gasaccess_accessibility_query_tests
     )
 
+    add_executable(gasaccess_kmc_query_integration_tests
+        tests/test_kmc_query_integration.cpp
+    )
+    target_link_libraries(gasaccess_kmc_query_integration_tests
+        PRIVATE GasAccess::gasaccess
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_kmc_query_integration_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_kmc_query_integration_tests PRIVATE /W4)
+    endif()
+
+    add_test(
+        NAME gasaccess_kmc_query_integration_tests
+        COMMAND gasaccess_kmc_query_integration_tests
+    )
+
     add_executable(gasaccess_c_api_tests
         tests/test_c_api.c
     )

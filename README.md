@@ -7,8 +7,9 @@ Cartesian voxel grid. Development follows the recorded phased plan in
 The current implementation provides Phase 1 grid geometry/topology, Phase 2
 static atom voxelization, Phase 3 exterior classification, Phase 4 cached site
 queries with C interoperability, the Phase 5 deposition-update baseline, and
-the Phase 6 standalone reference driver, plus the Phase 7 conservative local
-topology filter and Phase 8 serial affected-region repair:
+the Phase 6 standalone reference driver, the Phase 7 conservative local
+topology filter, Phase 8 serial affected-region repair, and the Phase 9
+single-site KMC query contract:
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -24,6 +25,8 @@ topology filter and Phase 8 serial affected-region repair:
 - solid/outside/closed classification summary counts;
 - allocation-free cached queries using either a seven-voxel default stencil or
   a caller-supplied stencil of at most 27 voxel IDs;
+- a Phase 9 KMC contract requiring only
+  `query.is_site_accessible(atom_position)` inside the site loop;
 - fixed-capacity `3x3x3` local connectivity checks for single-voxel removal;
 - conservative escalation for sources, suspected pinch-offs, and multi-voxel
   changes;
@@ -36,7 +39,9 @@ topology filter and Phase 8 serial affected-region repair:
 - machine-readable correctness checksums, timings, and memory reporting.
 
 The Phase 3 classifier is the correctness-reference implementation that later
-incremental update algorithms will be tested against.
+incremental update algorithms are tested against. The focused KMC query
+contract is documented in
+[`docs/integration/KMC_SITE_QUERY.md`](docs/integration/KMC_SITE_QUERY.md).
 
 ## Requirements
 
@@ -56,12 +61,13 @@ cmake --build build --parallel
 ```
 
 This produces the static library `build/libgasaccess.a`, the standalone
-`build/gasaccess_reference_driver`, and eight dedicated test executables:
+`build/gasaccess_reference_driver`, and nine dedicated test executables:
 
 - `build/gasaccess_grid_tests`
 - `build/gasaccess_atom_voxelizer_tests`
 - `build/gasaccess_exterior_classifier_tests`
 - `build/gasaccess_accessibility_query_tests`
+- `build/gasaccess_kmc_query_integration_tests`
 - `build/gasaccess_c_api_tests`
 - `build/gasaccess_deposition_updater_tests`
 - `build/gasaccess_local_topology_filter_tests`
@@ -80,6 +86,7 @@ To display every individual test-group result directly:
 ./build/gasaccess_atom_voxelizer_tests
 ./build/gasaccess_exterior_classifier_tests
 ./build/gasaccess_accessibility_query_tests
+./build/gasaccess_kmc_query_integration_tests
 ./build/gasaccess_c_api_tests
 ./build/gasaccess_deposition_updater_tests
 ./build/gasaccess_local_topology_filter_tests
