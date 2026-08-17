@@ -125,6 +125,10 @@ void test_grid_indexing_and_state_storage()
     GasGrid grid(grid_spec);
 
     REQUIRE(grid.voxel_count() == 24);
+    REQUIRE(grid.gas_state_count(GasState::Unclassified) == 24);
+    REQUIRE(grid.gas_state_count(GasState::Solid) == 0);
+    REQUIRE(grid.gas_state_count(GasState::OutsideAccessible) == 0);
+    REQUIRE(grid.gas_state_count(GasState::ClosedVoid) == 0);
 
     for (std::int64_t z = 0; z < 2; ++z) {
         for (std::int64_t y = 0; y < 3; ++y) {
@@ -152,13 +156,35 @@ void test_grid_indexing_and_state_storage()
     const auto selected_id = grid.voxel_id({2, 1, 0});
     grid.set_gas_state(selected_id, GasState::Solid);
     REQUIRE(grid.gas_state(selected_id) == GasState::Solid);
+    REQUIRE(grid.gas_state_count(GasState::Unclassified) == 23);
+    REQUIRE(grid.gas_state_count(GasState::Solid) == 1);
+    grid.set_gas_state(selected_id, GasState::Solid);
+    REQUIRE(grid.gas_state_count(GasState::Unclassified) == 23);
+    REQUIRE(grid.gas_state_count(GasState::Solid) == 1);
+
     grid.fill_gas_state(GasState::ClosedVoid);
     for (VoxelId id = 0; id < grid.voxel_count(); ++id) {
         REQUIRE(grid.gas_state(id) == GasState::ClosedVoid);
     }
+    REQUIRE(grid.gas_state_count(GasState::Unclassified) == 0);
+    REQUIRE(grid.gas_state_count(GasState::Solid) == 0);
+    REQUIRE(grid.gas_state_count(GasState::OutsideAccessible) == 0);
+    REQUIRE(grid.gas_state_count(GasState::ClosedVoid) == 24);
+
     REQUIRE_THROWS_AS(
         grid.set_gas_state(grid.voxel_count(), GasState::Solid),
         std::out_of_range);
+    const auto invalid_state = static_cast<GasState>(255);
+    REQUIRE_THROWS_AS(
+        grid.set_gas_state(selected_id, invalid_state),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        grid.fill_gas_state(invalid_state),
+        std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        grid.gas_state_count(invalid_state),
+        std::invalid_argument);
+    REQUIRE(grid.gas_state_count(GasState::ClosedVoid) == 24);
 }
 
 void test_invalid_grid_specs()

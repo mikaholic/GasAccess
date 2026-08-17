@@ -122,6 +122,10 @@ ga_status ga_grid_get_state_at(
     const ga_grid* grid,
     ga_voxel_coord voxel_coord,
     ga_gas_state* out_gas_state);
+ga_status ga_grid_get_state_count(
+    const ga_grid* grid,
+    ga_gas_state gas_state,
+    ga_voxel_id* out_count);
 ga_status ga_grid_set_state(
     ga_grid* grid,
     ga_voxel_id voxel_id,

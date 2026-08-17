@@ -25,6 +25,7 @@ using gasaccess::GasGrid;
 using gasaccess::GasState;
 using gasaccess::GridSpec;
 using gasaccess::Point3;
+using gasaccess::RemovedVoxel;
 using gasaccess::VoxelCoord;
 using gasaccess::VoxelId;
 
@@ -178,6 +179,50 @@ void test_single_atom_spherical_exclusion()
             REQUIRE(gas_grid.gas_state(id) == GasState::Unclassified);
         }
     }
+}
+
+void test_newly_solid_change_capture()
+{
+    GasGrid gas_grid(make_grid_spec());
+    gas_grid.fill_gas_state(GasState::OutsideAccessible);
+    const auto center_id = gas_grid.voxel_id({2, 2, 2});
+    gas_grid.set_gas_state(center_id, GasState::ClosedVoid);
+
+    const Atom atom{{2.5, 2.5, 2.5}, 0.4};
+    const AtomVoxelizer voxelizer(0.6);
+    std::vector<RemovedVoxel> removed_voxels{{
+        gas_grid.voxel_count(),
+        GasState::Unclassified
+    }};
+    const auto newly_solid = voxelizer.voxelize(
+        gas_grid,
+        {&atom, 1},
+        removed_voxels);
+
+    REQUIRE(newly_solid == 7);
+    REQUIRE(removed_voxels.size() == 7);
+    std::set<VoxelId> captured_ids;
+    for (const auto& removed_voxel : removed_voxels) {
+        REQUIRE(captured_ids.insert(removed_voxel.voxel_id).second);
+        REQUIRE(gas_grid.gas_state(removed_voxel.voxel_id) == GasState::Solid);
+        if (removed_voxel.voxel_id == center_id) {
+            REQUIRE(removed_voxel.previous_state == GasState::ClosedVoid);
+        } else {
+            REQUIRE(removed_voxel.previous_state == GasState::OutsideAccessible);
+        }
+    }
+    REQUIRE(captured_ids == ids_for(gas_grid, {
+        {2, 2, 2},
+        {1, 2, 2}, {3, 2, 2},
+        {2, 1, 2}, {2, 3, 2},
+        {2, 2, 1}, {2, 2, 3}
+    }));
+
+    REQUIRE(voxelizer.voxelize(
+        gas_grid,
+        {&atom, 1},
+        removed_voxels) == 0);
+    REQUIRE(removed_voxels.empty());
 }
 
 void test_additive_idempotent_and_order_independent()
@@ -412,6 +457,7 @@ int main()
 {
     const std::vector<std::pair<std::string, std::function<void()>>> tests{
         {"single-atom spherical exclusion", test_single_atom_spherical_exclusion},
+        {"newly solid change capture", test_newly_solid_change_capture},
         {"additive and order-independent voxelization",
          test_additive_idempotent_and_order_independent},
         {"periodic seam exclusion", test_periodic_seam_exclusion},

@@ -305,6 +305,14 @@ if(BUILD_TESTING)
             --periodic-z
     )
     add_test(
+        NAME gasaccess_reference_pinch_off
+        COMMAND gasaccess_reference_driver
+            --scenario pinch-off
+            --nx 12 --ny 8 --nz 10
+            --query-count 2000
+            --update-count 16
+    )
+    add_test(
         NAME gasaccess_reference_bulk_small
         COMMAND gasaccess_reference_driver
             --scenario bulk
@@ -329,6 +337,7 @@ if(BUILD_TESTING)
         gasaccess_reference_open_trench
         gasaccess_reference_sealed_trench
         gasaccess_reference_sealed_trench_periodic_z
+        gasaccess_reference_pinch_off
         gasaccess_reference_bulk_small
         gasaccess_reference_bulk_periodic
         PROPERTIES LABELS "reference"
@@ -345,6 +354,10 @@ if(BUILD_TESTING)
         gasaccess_reference_sealed_trench_periodic_z PROPERTIES
         PASS_REGULAR_EXPRESSION
             "initial_state_checksum=0xf28e91515bcd9585"
+    )
+    set_tests_properties(gasaccess_reference_pinch_off PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "final_state_checksum=0xd3d951011d1548c5"
     )
     set_tests_properties(gasaccess_reference_bulk_small PROPERTIES
         PASS_REGULAR_EXPRESSION

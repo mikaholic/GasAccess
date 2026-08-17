@@ -53,6 +53,7 @@ private:
     // Scratch storage is reused by logically const update calls. A single
     // updater instance must not be called concurrently.
     mutable AffectedRegionRepair affected_region_repair_;
+    mutable std::vector<RemovedVoxel> removed_voxels_{};
 };
 
 }  // namespace gasaccess

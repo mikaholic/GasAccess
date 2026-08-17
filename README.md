@@ -22,7 +22,7 @@ single-site KMC query contract:
 - bounded per-atom candidate traversal with periodic-image distance handling;
 - full serial six-neighbor flood-fill from configured reservoir sources;
 - cached `Solid`, `OutsideAccessible`, and `ClosedVoid` voxel states;
-- solid/outside/closed classification summary counts;
+- incrementally maintained solid/outside/closed state counts;
 - allocation-free cached queries using either a seven-voxel default stencil or
   a caller-supplied stencil of at most 27 voxel IDs;
 - a Phase 9 KMC contract requiring only
@@ -31,6 +31,7 @@ single-site KMC query contract:
 - conservative escalation for sources, suspected pinch-offs, and multi-voxel
   changes;
 - source-aware component repair from surviving neighbors of newly solid voxels;
+- exact newly-solid voxel capture without a production full-grid discovery scan;
 - reusable epoch/frontier traversal storage with periodic-boundary support;
 - selectable incremental or forced full-reference update modes;
 - sorted changed-voxel reporting and post-update classification counts;
@@ -101,11 +102,13 @@ Display all driver options:
 ./build/gasaccess_reference_driver --help
 ```
 
-Run the default open- and sealed-trench fixtures:
+Run the default open-, sealed-, and deposition-driven pinch-off fixtures:
 
 ```sh
 ./build/gasaccess_reference_driver --scenario open-trench
 ./build/gasaccess_reference_driver --scenario sealed-trench
+./build/gasaccess_reference_driver \
+    --scenario pinch-off --nx 64 --ny 32 --nz 64 --update-count 640
 ```
 
 Run a deterministic million-atom synthetic structure:
@@ -120,10 +123,10 @@ Run a deterministic million-atom synthetic structure:
 The output uses one `key=value` field per line so it can be archived or parsed
 by benchmark automation. Timings cover grid construction, atom generation,
 voxelization, initial classification, cached queries, and deposition updates.
-It also reports counts for full reclassifications, affected-region repairs,
-repair visits, and newly closed voxels. Memory output separates the exact
-one-byte-per-voxel persistent state from a traversal-frontier logical-payload
-bound and whole-process peak RSS.
+It also reports median, p95, and maximum update latency separated into locally
+safe, affected-region repair, and full-reference paths. Memory output separates
+the exact one-byte-per-voxel persistent state from a traversal-frontier
+logical-payload bound and whole-process peak RSS.
 
 The recorded Phase 6 environment, commands, results, and interpretation are in
 [`docs/benchmarks/PHASE6_BASELINE.md`](docs/benchmarks/PHASE6_BASELINE.md).
@@ -131,3 +134,5 @@ The first local-filter comparison is in
 [`docs/benchmarks/PHASE7_FILTER.md`](docs/benchmarks/PHASE7_FILTER.md).
 Phase 8 repair locality and correctness results are in
 [`docs/benchmarks/PHASE8_REPAIR.md`](docs/benchmarks/PHASE8_REPAIR.md).
+Phase 10 serial optimization and scale results are in
+[`docs/benchmarks/PHASE10_SERIAL_OPTIMIZATION.md`](docs/benchmarks/PHASE10_SERIAL_OPTIMIZATION.md).

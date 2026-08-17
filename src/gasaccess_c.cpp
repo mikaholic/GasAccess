@@ -302,6 +302,18 @@ ga_status ga_grid_get_state_at(
     });
 }
 
+ga_status ga_grid_get_state_count(
+    const ga_grid* grid,
+    ga_gas_state gas_state,
+    ga_voxel_id* out_count)
+{
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(out_count, "output state-count pointer is null");
+        *out_count = grid->gas_grid.gas_state_count(convert_gas_state(gas_state));
+    });
+}
+
 ga_status ga_grid_set_state(
     ga_grid* grid,
     ga_voxel_id voxel_id,

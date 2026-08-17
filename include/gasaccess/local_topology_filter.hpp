@@ -1,9 +1,8 @@
 #ifndef GASACCESS_LOCAL_TOPOLOGY_FILTER_HPP
 #define GASACCESS_LOCAL_TOPOLOGY_FILTER_HPP
 
-#include "gasaccess/gas_grid.hpp"
+#include "gasaccess/voxel_change.hpp"
 
-#include <cstddef>
 #include <cstdint>
 
 namespace gasaccess {
@@ -11,16 +10,6 @@ namespace gasaccess {
 enum class TopologyDecision : std::uint8_t {
     Safe = 0,
     RequiresConnectivityRepair = 1
-};
-
-struct RemovedVoxel {
-    VoxelId voxel_id = 0;
-    GasState previous_state = GasState::Unclassified;
-};
-
-struct RemovedVoxelView {
-    const RemovedVoxel* removed_voxels = nullptr;
-    std::size_t count = 0;
 };
 
 struct TopologyCheckResult {

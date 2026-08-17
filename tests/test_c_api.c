@@ -51,6 +51,7 @@ static void test_c_grid_classification_and_queries(void)
     ga_voxel_id solid_ids[5];
     ga_voxel_id target_id;
     ga_voxel_id source_id;
+    ga_voxel_id state_count = 0;
     ga_classification_summary summary;
     ga_gas_state gas_state = GA_GAS_STATE_UNCLASSIFIED;
     uint8_t is_accessible = 0;
@@ -77,6 +78,21 @@ static void test_c_grid_classification_and_queries(void)
     REQUIRE(summary.solid_count == 5);
     REQUIRE(summary.outside_accessible_count == 3);
     REQUIRE(summary.closed_void_count == 1);
+    REQUIRE(ga_grid_get_state_count(
+        grid,
+        GA_GAS_STATE_SOLID,
+        &state_count) == GA_STATUS_SUCCESS);
+    REQUIRE(state_count == summary.solid_count);
+    REQUIRE(ga_grid_get_state_count(
+        grid,
+        GA_GAS_STATE_OUTSIDE_ACCESSIBLE,
+        &state_count) == GA_STATUS_SUCCESS);
+    REQUIRE(state_count == summary.outside_accessible_count);
+    REQUIRE(ga_grid_get_state_count(
+        grid,
+        GA_GAS_STATE_CLOSED_VOID,
+        &state_count) == GA_STATUS_SUCCESS);
+    REQUIRE(state_count == summary.closed_void_count);
 
     target_id = get_voxel_id(grid, 1, 0, 0);
     source_id = get_voxel_id(grid, 1, 0, 2);
@@ -227,6 +243,7 @@ static void test_c_error_handling(void)
     ga_grid* grid = NULL;
     ga_grid_spec valid_spec = make_grid_spec(1, 1, 1);
     ga_gas_state gas_state = GA_GAS_STATE_UNCLASSIFIED;
+    ga_voxel_id state_count = 0;
     uint8_t is_accessible = 0;
     ga_atom atom = {{0.5, 0.5, 0.5}, 0.0};
     ga_update_result* update_result = NULL;
@@ -241,6 +258,10 @@ static void test_c_error_handling(void)
     REQUIRE(ga_grid_create(&valid_spec, &grid) == GA_STATUS_SUCCESS);
     REQUIRE(strlen(ga_last_error_message()) == 0);
     REQUIRE(ga_grid_set_state(grid, 0, (ga_gas_state)99)
+        == GA_STATUS_INVALID_ARGUMENT);
+    REQUIRE(ga_grid_get_state_count(grid, (ga_gas_state)99, &state_count)
+        == GA_STATUS_INVALID_ARGUMENT);
+    REQUIRE(ga_grid_get_state_count(grid, GA_GAS_STATE_SOLID, NULL)
         == GA_STATUS_INVALID_ARGUMENT);
     REQUIRE(ga_grid_get_state(grid, 1, &gas_state) == GA_STATUS_OUT_OF_RANGE);
     REQUIRE(ga_apply_deposition(

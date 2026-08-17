@@ -56,6 +56,7 @@ GasGrid::GasGrid(GridSpec grid_spec)
         throw std::length_error("voxel count exceeds state container capacity");
     }
     states_.assign(state_count, GasState::Unclassified);
+    state_counts_[state_index(GasState::Unclassified)] = voxel_count_;
     initialize_explicit_sources();
 }
 
@@ -268,17 +269,43 @@ GasState GasGrid::gas_state(const VoxelCoord& voxel_coord_value) const
     return gas_state(voxel_id(voxel_coord_value));
 }
 
+VoxelId GasGrid::gas_state_count(GasState gas_state) const
+{
+    return state_counts_[state_index(gas_state)];
+}
+
 void GasGrid::set_gas_state(VoxelId voxel_id, GasState gas_state)
 {
     if (voxel_id >= voxel_count_) {
         throw std::out_of_range("voxel identifier is outside the grid");
     }
-    states_[static_cast<std::size_t>(voxel_id)] = gas_state;
+    const auto new_state_index = state_index(gas_state);
+    auto& current_state = states_[static_cast<std::size_t>(voxel_id)];
+    if (current_state == gas_state) {
+        return;
+    }
+
+    const auto current_state_index = state_index(current_state);
+    --state_counts_[current_state_index];
+    ++state_counts_[new_state_index];
+    current_state = gas_state;
 }
 
-void GasGrid::fill_gas_state(GasState gas_state) noexcept
+void GasGrid::fill_gas_state(GasState gas_state)
 {
+    const auto new_state_index = state_index(gas_state);
     std::fill(states_.begin(), states_.end(), gas_state);
+    state_counts_.fill(0);
+    state_counts_[new_state_index] = voxel_count_;
+}
+
+std::size_t GasGrid::state_index(GasState gas_state)
+{
+    const auto index = static_cast<std::size_t>(gas_state);
+    if (index >= 4) {
+        throw std::invalid_argument("invalid gas state value");
+    }
+    return index;
 }
 
 VoxelId GasGrid::validate_and_count_voxels(const GridSpec& grid_spec)

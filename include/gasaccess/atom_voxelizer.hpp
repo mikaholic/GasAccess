@@ -1,9 +1,10 @@
 #ifndef GASACCESS_ATOM_VOXELIZER_HPP
 #define GASACCESS_ATOM_VOXELIZER_HPP
 
-#include "gasaccess/gas_grid.hpp"
+#include "gasaccess/voxel_change.hpp"
 
 #include <cstddef>
+#include <vector>
 
 namespace gasaccess {
 
@@ -30,7 +31,20 @@ public:
     // newly changed to GasState::Solid.
     VoxelId voxelize(GasGrid& gas_grid, AtomView atom_view) const;
 
+    // Additionally records every newly solid voxel and its previous state.
+    // The caller-owned output is cleared after input validation and may retain
+    // capacity for reuse across deposition events.
+    VoxelId voxelize(
+        GasGrid& gas_grid,
+        AtomView atom_view,
+        std::vector<RemovedVoxel>& removed_voxels) const;
+
 private:
+    VoxelId voxelize_impl(
+        GasGrid& gas_grid,
+        AtomView atom_view,
+        std::vector<RemovedVoxel>* removed_voxels) const;
+
     double precursor_radius_ = 0.0;
 };
 

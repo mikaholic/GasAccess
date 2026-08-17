@@ -138,6 +138,22 @@ double AtomVoxelizer::precursor_radius() const noexcept
 
 VoxelId AtomVoxelizer::voxelize(GasGrid& gas_grid, AtomView atom_view) const
 {
+    return voxelize_impl(gas_grid, atom_view, nullptr);
+}
+
+VoxelId AtomVoxelizer::voxelize(
+    GasGrid& gas_grid,
+    AtomView atom_view,
+    std::vector<RemovedVoxel>& removed_voxels) const
+{
+    return voxelize_impl(gas_grid, atom_view, &removed_voxels);
+}
+
+VoxelId AtomVoxelizer::voxelize_impl(
+    GasGrid& gas_grid,
+    AtomView atom_view,
+    std::vector<RemovedVoxel>* removed_voxels) const
+{
     if (atom_view.count != 0 && atom_view.atoms == nullptr) {
         throw std::invalid_argument("atom view has a null pointer with nonzero count");
     }
@@ -146,6 +162,10 @@ VoxelId AtomVoxelizer::voxelize(GasGrid& gas_grid, AtomView atom_view) const
         const auto& atom = atom_view.atoms[atom_index];
         static_cast<void>(validate_excluded_radius(atom, precursor_radius_));
         static_cast<void>(normalized_atom_position(gas_grid, atom));
+    }
+
+    if (removed_voxels != nullptr) {
+        removed_voxels->clear();
     }
 
     const auto& grid_spec = gas_grid.grid_spec();
@@ -243,7 +263,11 @@ VoxelId AtomVoxelizer::voxelize(GasGrid& gas_grid, AtomView atom_view) const
                         static_cast<std::int64_t>(y),
                         static_cast<std::int64_t>(z)
                     });
-                    if (gas_grid.gas_state(id) != GasState::Solid) {
+                    const auto previous_state = gas_grid.gas_state(id);
+                    if (previous_state != GasState::Solid) {
+                        if (removed_voxels != nullptr) {
+                            removed_voxels->push_back({id, previous_state});
+                        }
                         gas_grid.set_gas_state(id, GasState::Solid);
                         ++newly_solid_count;
                     }

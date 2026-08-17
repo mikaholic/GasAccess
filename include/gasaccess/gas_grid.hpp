@@ -101,10 +101,12 @@ public:
 
     GasState gas_state(VoxelId voxel_id) const;
     GasState gas_state(const VoxelCoord& voxel_coord) const;
+    VoxelId gas_state_count(GasState gas_state) const;
     void set_gas_state(VoxelId voxel_id, GasState gas_state);
-    void fill_gas_state(GasState gas_state) noexcept;
+    void fill_gas_state(GasState gas_state);
 
 private:
+    static std::size_t state_index(GasState gas_state);
     static VoxelId validate_and_count_voxels(const GridSpec& grid_spec);
     static void validate_boundary_conditions(const GridSpec& grid_spec);
 
@@ -120,6 +122,7 @@ private:
     GridSpec grid_spec_;
     VoxelId voxel_count_ = 0;
     std::vector<GasState> states_;
+    std::array<VoxelId, 4> state_counts_{};
     std::vector<VoxelId> explicit_source_ids_;
 };
 

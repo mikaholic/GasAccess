@@ -1,6 +1,6 @@
 # GasAccess Development Plan
 
-Status: in development — Phase 9 complete
+Status: in development — Phase 10 complete
 Last updated: 2026-08-17
 
 This is the working plan for developing GasAccess as an independent C++/C
@@ -743,7 +743,7 @@ Before Phase 11:
 - [x] Phase 7: conservative local topology filter
 - [x] Phase 8: serial affected-region repair
 - [x] Phase 9: single-site KMC query contract
-- [ ] Phase 10: serial scale and storage optimization
+- [x] Phase 10: serial scale and storage optimization
 - [ ] Phase 11: decomposition adapter and gas ghost exchange
 - [ ] Phase 12: distributed initial flood-fill
 - [ ] Phase 13: distributed incremental repair
@@ -972,3 +972,38 @@ Update this checklist only when a phase's tests and exit gate have passed.
   errors. Valgrind Memcheck reported zero errors and no leaks for both the KMC
   integration and accessibility-query suites; the existing allocation wrapper
   continued to report zero dynamic allocations across hot queries.
+
+#### Phase 10 completion — 2026-08-17
+
+- Measured the existing million-atom, 1,048,576-voxel workload before changing
+  storage or update behavior. Three harmless one-voxel updates required
+  23.901399 ms because each update copied, counted, and searched the full grid.
+- Added incrementally maintained counts for all four gas states. Classification
+  summaries are now available in O(1), with 32 bytes of fixed metadata per grid
+  and no change to the one-byte-per-voxel state field. Added matching C++ and C
+  state-count accessors with validation tests.
+- Added exact newly-solid change capture to `AtomVoxelizer`, including each
+  voxel's state immediately before removal. `DepositionUpdater` reuses this
+  storage and no longer performs production full-grid snapshots or discovery
+  scans.
+- Kept full state snapshots and diffs exclusively in the explicitly selected
+  `FullReclassification` reference/debug mode.
+- Extended the reference driver with per-path update latency distributions and
+  a deterministic `pinch-off` scenario. The CI-sized pinch-off reaches the
+  exact sealed-trench checksum after one affected-region repair.
+- Reduced the same three million-scale harmless updates from 23.901399 ms to
+  0.004028 ms in the recorded run while preserving the initial and final state
+  checksums. One million cached queries remained approximately 19.76 million
+  queries/s.
+- Measured 872 locally safe and 128 repair events on a 1,000-update million-atom
+  run. Also measured a controlled 39,680-voxel trench closure: 639 safe updates
+  had 1.265 us median latency and the final repair took 3.184 ms.
+- Retained the dense backend. Persistent state is 1 MiB for the million-voxel
+  case; packed state, a compile-time float ABI, and tiled storage were not
+  justified by the measured data. Detailed commands, timings, memory, and
+  rationale are recorded in
+  `docs/benchmarks/PHASE10_SERIAL_OPTIMIZATION.md`.
+- Passed the full 15-case CTest suite under GCC 8.5 with C and C++ warnings
+  treated as errors. Valgrind Memcheck reported zero errors and no leaks for
+  the grid, change-capturing voxelizer, deposition updater, C API, and
+  end-to-end pinch-off driver suites.

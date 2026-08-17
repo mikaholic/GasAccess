@@ -4,6 +4,7 @@
 #include "gasaccess/exterior_classifier.hpp"
 #include "gasaccess/gas_grid.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -89,6 +90,13 @@ double elapsed_ms(
     return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
+double elapsed_us(
+    std::chrono::steady_clock::time_point start,
+    std::chrono::steady_clock::time_point end)
+{
+    return std::chrono::duration<double, std::micro>(end - start).count();
+}
+
 std::uint64_t parse_uint64(const std::string& text, const std::string& option_name)
 {
     std::size_t parsed_count = 0;
@@ -138,7 +146,7 @@ void print_help(const char* executable_name)
         << "Deterministic GasAccess correctness and timing driver.\n"
         << "\n"
         << "Options:\n"
-        << "  --scenario NAME       open-trench, sealed-trench, or bulk\n"
+        << "  --scenario NAME       open-trench, sealed-trench, pinch-off, or bulk\n"
         << "  --nx N --ny N --nz N  voxel dimensions (defaults: 64 32 64)\n"
         << "  --spacing VALUE       voxel spacing (default: 1.0)\n"
         << "  --atom-radius VALUE   solid atom radius (default: 0.2)\n"
@@ -208,9 +216,10 @@ void validate_options(const Options& options)
 {
     if (options.scenario != "open-trench"
         && options.scenario != "sealed-trench"
+        && options.scenario != "pinch-off"
         && options.scenario != "bulk") {
         throw std::invalid_argument(
-            "scenario must be open-trench, sealed-trench, or bulk");
+            "scenario must be open-trench, sealed-trench, pinch-off, or bulk");
     }
     if (options.nx == 0 || options.ny == 0 || options.nz == 0) {
         throw std::invalid_argument("all voxel dimensions must be positive");
@@ -238,7 +247,8 @@ GridSpec make_grid_spec(const Options& options)
     };
 
     const bool is_trench = options.scenario == "open-trench"
-        || options.scenario == "sealed-trench";
+        || options.scenario == "sealed-trench"
+        || options.scenario == "pinch-off";
     if (!options.periodic_z) {
         grid_spec.reservoir_faces.z_high = true;
     } else if (is_trench) {
@@ -337,13 +347,85 @@ std::vector<Atom> make_bulk_atoms(const GasGrid& gas_grid, const Options& option
 
 std::vector<Atom> make_atoms(const GasGrid& gas_grid, const Options& options)
 {
-    if (options.scenario == "open-trench") {
+    if (options.scenario == "open-trench"
+        || options.scenario == "pinch-off") {
         return make_trench_atoms(gas_grid, options, false);
     }
     if (options.scenario == "sealed-trench") {
         return make_trench_atoms(gas_grid, options, true);
     }
     return make_bulk_atoms(gas_grid, options);
+}
+
+std::vector<Atom> make_update_atoms(
+    const GasGrid& gas_grid,
+    const Options& options)
+{
+    const auto update_capacity = options.update_count < gas_grid.voxel_count()
+        ? options.update_count
+        : gas_grid.voxel_count();
+    const auto update_capacity_size = checked_size(update_capacity, "update count");
+    std::vector<Atom> update_atoms;
+    update_atoms.reserve(update_capacity_size);
+
+    if (options.scenario == "pinch-off") {
+        const std::uint64_t left_wall = options.nx / 3;
+        const std::uint64_t right_wall = options.nx - left_wall - 1;
+        const std::uint64_t roof_z = options.nz - 2;
+        for (std::uint64_t y = 0;
+             y < options.ny && update_atoms.size() < update_capacity_size;
+             ++y) {
+            for (std::uint64_t x = left_wall + 1;
+                 x < right_wall && update_atoms.size() < update_capacity_size;
+                 ++x) {
+                update_atoms.push_back(atom_at(
+                    gas_grid,
+                    {static_cast<std::int64_t>(x),
+                     static_cast<std::int64_t>(y),
+                     static_cast<std::int64_t>(roof_z)},
+                    options.atom_radius));
+            }
+        }
+        return update_atoms;
+    }
+
+    for (VoxelId voxel_id = 0;
+         voxel_id < gas_grid.voxel_count()
+             && update_atoms.size() < update_capacity_size;
+         ++voxel_id) {
+        if (gas_grid.gas_state(voxel_id) != GasState::Solid) {
+            update_atoms.push_back(
+                {gas_grid.voxel_center(voxel_id), options.atom_radius});
+        }
+    }
+    return update_atoms;
+}
+
+double percentile_us(
+    const std::vector<double>& sorted_latencies_us,
+    double percentile)
+{
+    if (sorted_latencies_us.empty()) {
+        return 0.0;
+    }
+    const double rank = std::ceil(
+        percentile * static_cast<double>(sorted_latencies_us.size()));
+    const auto index = static_cast<std::size_t>(rank) - 1;
+    return sorted_latencies_us[index];
+}
+
+void print_latency_summary(
+    const std::string& prefix,
+    std::vector<double> latencies_us)
+{
+    std::sort(latencies_us.begin(), latencies_us.end());
+    std::cout << prefix << "_sample_count=" << latencies_us.size() << '\n';
+    std::cout << prefix << "_median_us="
+              << percentile_us(latencies_us, 0.50) << '\n';
+    std::cout << prefix << "_p95_us="
+              << percentile_us(latencies_us, 0.95) << '\n';
+    std::cout << prefix << "_max_us="
+              << (latencies_us.empty() ? 0.0 : latencies_us.back()) << '\n';
 }
 
 std::uint64_t state_checksum(const GasGrid& gas_grid)
@@ -363,7 +445,13 @@ void validate_summary(const GasGrid& gas_grid, const ClassificationSummary& summ
             > gas_grid.voxel_count() - summary.solid_count
         || summary.closed_void_count
             != gas_grid.voxel_count() - summary.solid_count
-                - summary.outside_accessible_count) {
+                - summary.outside_accessible_count
+        || gas_grid.gas_state_count(GasState::Unclassified) != 0
+        || gas_grid.gas_state_count(GasState::Solid) != summary.solid_count
+        || gas_grid.gas_state_count(GasState::OutsideAccessible)
+            != summary.outside_accessible_count
+        || gas_grid.gas_state_count(GasState::ClosedVoid)
+            != summary.closed_void_count) {
         throw std::logic_error("classification summary does not match voxel count");
     }
 }
@@ -434,36 +522,37 @@ int run(const Options& options)
     }
     const auto query_end = std::chrono::steady_clock::now();
 
-    const auto update_capacity = options.update_count < gas_grid.voxel_count()
-        ? options.update_count
-        : gas_grid.voxel_count();
-    const auto update_capacity_size = checked_size(update_capacity, "update count");
-    std::vector<Atom> update_atoms;
-    update_atoms.reserve(update_capacity_size);
-    for (VoxelId voxel_id = 0;
-         voxel_id < gas_grid.voxel_count()
-             && update_atoms.size() < update_capacity_size;
-         ++voxel_id) {
-        if (gas_grid.gas_state(voxel_id) != GasState::Solid) {
-            update_atoms.push_back(
-                {gas_grid.voxel_center(voxel_id), options.atom_radius});
-        }
-    }
+    const auto update_atoms = make_update_atoms(gas_grid, options);
 
     VoxelId geometry_changing_update_count = 0;
+    VoxelId locally_safe_update_count = 0;
     VoxelId full_reclassification_update_count = 0;
     VoxelId affected_region_repair_update_count = 0;
     VoxelId repair_visited_voxel_count = 0;
     VoxelId repair_closed_voxel_count = 0;
     VoxelId update_newly_solid_count = 0;
     VoxelId changed_state_count = 0;
+    std::vector<double> update_latencies_us;
+    std::vector<double> safe_update_latencies_us;
+    std::vector<double> repair_update_latencies_us;
+    std::vector<double> full_update_latencies_us;
+    update_latencies_us.reserve(update_atoms.size());
+    safe_update_latencies_us.reserve(update_atoms.size());
+    repair_update_latencies_us.reserve(update_atoms.size());
+    full_update_latencies_us.reserve(update_atoms.size());
     ClassificationSummary final_summary = initial_summary;
     const gasaccess::DepositionUpdater deposition_updater(options.precursor_radius);
     const auto update_start = std::chrono::steady_clock::now();
     for (const auto& update_atom : update_atoms) {
+        const auto single_update_start = std::chrono::steady_clock::now();
         const auto result = deposition_updater.apply_deposition(
             gas_grid,
             AtomView{&update_atom, 1});
+        const auto single_update_end = std::chrono::steady_clock::now();
+        const double update_latency_us = elapsed_us(
+            single_update_start,
+            single_update_end);
+        update_latencies_us.push_back(update_latency_us);
         if (result.geometry_changed()) {
             ++geometry_changing_update_count;
         }
@@ -472,6 +561,12 @@ int run(const Options& options)
         }
         if (result.used_affected_region_repair()) {
             ++affected_region_repair_update_count;
+            repair_update_latencies_us.push_back(update_latency_us);
+        } else if (result.used_full_reclassification()) {
+            full_update_latencies_us.push_back(update_latency_us);
+        } else if (result.geometry_changed()) {
+            ++locally_safe_update_count;
+            safe_update_latencies_us.push_back(update_latency_us);
         }
         repair_visited_voxel_count += result.repair_visited_voxel_count;
         repair_closed_voxel_count += result.repair_closed_voxel_count;
@@ -496,7 +591,7 @@ int run(const Options& options)
     const auto peak_rss_bytes = read_peak_rss_bytes();
 
     std::cout << std::boolalpha << std::fixed << std::setprecision(6);
-    std::cout << "driver_version=1\n";
+    std::cout << "driver_version=2\n";
     std::cout << "scenario=" << options.scenario << '\n';
     std::cout << "nx=" << options.nx << '\n';
     std::cout << "ny=" << options.ny << '\n';
@@ -522,6 +617,8 @@ int run(const Options& options)
     std::cout << "update_count_performed=" << update_atoms.size() << '\n';
     std::cout << "geometry_changing_update_count="
               << geometry_changing_update_count << '\n';
+    std::cout << "locally_safe_update_count="
+              << locally_safe_update_count << '\n';
     std::cout << "full_reclassification_update_count="
               << full_reclassification_update_count << '\n';
     std::cout << "affected_region_repair_update_count="
@@ -546,6 +643,10 @@ int run(const Options& options)
     std::cout << "query_ms=" << query_ms << '\n';
     std::cout << "query_throughput_per_second=" << query_throughput << '\n';
     std::cout << "deposition_update_ms=" << elapsed_ms(update_start, update_end) << '\n';
+    print_latency_summary("update_latency", update_latencies_us);
+    print_latency_summary("safe_update_latency", safe_update_latencies_us);
+    print_latency_summary("repair_update_latency", repair_update_latencies_us);
+    print_latency_summary("full_update_latency", full_update_latencies_us);
     std::cout << "persistent_state_storage_bytes=" << persistent_state_bytes << '\n';
     std::cout << "persistent_state_bytes_per_voxel=" << sizeof(GasState) << '\n';
     std::cout << "traversal_frontier_payload_upper_bound_bytes="

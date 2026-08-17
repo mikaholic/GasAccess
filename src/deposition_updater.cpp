@@ -5,6 +5,22 @@
 #include <vector>
 
 namespace gasaccess {
+namespace {
+
+ClassificationSummary current_classification(const GasGrid& gas_grid)
+{
+    if (gas_grid.gas_state_count(GasState::Unclassified) != 0) {
+        throw std::invalid_argument(
+            "deposition update requires a fully classified gas grid");
+    }
+    return {
+        gas_grid.gas_state_count(GasState::Solid),
+        gas_grid.gas_state_count(GasState::OutsideAccessible),
+        gas_grid.gas_state_count(GasState::ClosedVoid)
+    };
+}
+
+}  // namespace
 
 bool DepositionUpdateResult::geometry_changed() const noexcept
 {
@@ -48,59 +64,35 @@ DepositionUpdateResult DepositionUpdater::apply_deposition(
     AtomView deposited_atoms) const
 {
     DepositionUpdateResult result{};
-    std::vector<GasState> previous_states;
-    previous_states.reserve(static_cast<std::size_t>(gas_grid.voxel_count()));
+    result.classification = current_classification(gas_grid);
 
-    for (VoxelId voxel_id = 0; voxel_id < gas_grid.voxel_count(); ++voxel_id) {
-        const auto gas_state = gas_grid.gas_state(voxel_id);
-        previous_states.push_back(gas_state);
-        switch (gas_state) {
-        case GasState::Solid:
-            ++result.classification.solid_count;
-            break;
-        case GasState::OutsideAccessible:
-            ++result.classification.outside_accessible_count;
-            break;
-        case GasState::ClosedVoid:
-            ++result.classification.closed_void_count;
-            break;
-        case GasState::Unclassified:
-            throw std::invalid_argument(
-                "deposition update requires a fully classified gas grid");
-        default:
-            throw std::invalid_argument("gas grid contains an invalid state value");
+    std::vector<GasState> previous_states;
+    if (repair_mode_ == ConnectivityRepairMode::FullReclassification) {
+        previous_states.reserve(static_cast<std::size_t>(gas_grid.voxel_count()));
+        for (VoxelId voxel_id = 0;
+             voxel_id < gas_grid.voxel_count();
+             ++voxel_id) {
+            previous_states.push_back(gas_grid.gas_state(voxel_id));
         }
     }
 
-    result.newly_solid_count = atom_voxelizer_.voxelize(gas_grid, deposited_atoms);
+    result.newly_solid_count = atom_voxelizer_.voxelize(
+        gas_grid,
+        deposited_atoms,
+        removed_voxels_);
     if (!result.geometry_changed()) {
         return result;
     }
 
-    std::vector<RemovedVoxel> removed_voxels;
-    removed_voxels.reserve(static_cast<std::size_t>(result.newly_solid_count));
-    for (VoxelId voxel_id = 0; voxel_id < gas_grid.voxel_count(); ++voxel_id) {
-        const auto previous_state = previous_states[static_cast<std::size_t>(voxel_id)];
-        if (previous_state != GasState::Solid
-            && gas_grid.gas_state(voxel_id) == GasState::Solid) {
-            removed_voxels.push_back({voxel_id, previous_state});
-        }
-    }
-    if (removed_voxels.size()
+    if (removed_voxels_.size()
         != static_cast<std::size_t>(result.newly_solid_count)) {
         throw std::logic_error("voxelizer solid-count result is inconsistent");
     }
 
-    const auto update_removed_voxel_counts = [&]() {
-        result.changed_voxel_ids.reserve(removed_voxels.size());
-        for (const auto& removed_voxel : removed_voxels) {
+    const auto append_removed_voxels = [&]() {
+        result.changed_voxel_ids.reserve(removed_voxels_.size());
+        for (const auto& removed_voxel : removed_voxels_) {
             result.changed_voxel_ids.push_back(removed_voxel.voxel_id);
-            ++result.classification.solid_count;
-            if (removed_voxel.previous_state == GasState::OutsideAccessible) {
-                --result.classification.outside_accessible_count;
-            } else {
-                --result.classification.closed_void_count;
-            }
         }
     };
 
@@ -118,28 +110,27 @@ DepositionUpdateResult DepositionUpdater::apply_deposition(
 
     const auto topology_result = local_topology_filter_.evaluate(
         gas_grid,
-        {removed_voxels.data(), removed_voxels.size()});
+        {removed_voxels_.data(), removed_voxels_.size()});
     if (topology_result.is_safe()) {
-        update_removed_voxel_counts();
+        append_removed_voxels();
+        result.classification = current_classification(gas_grid);
         return result;
     }
 
     const auto repair_result = affected_region_repair_.repair(
         gas_grid,
-        {removed_voxels.data(), removed_voxels.size()});
+        {removed_voxels_.data(), removed_voxels_.size()});
     result.affected_region_repair_performed = true;
     result.repair_visited_voxel_count = repair_result.visited_voxel_count;
     result.repair_closed_voxel_count = static_cast<VoxelId>(
         repair_result.newly_closed_voxel_ids.size());
-    update_removed_voxel_counts();
-    result.classification.outside_accessible_count -=
-        result.repair_closed_voxel_count;
-    result.classification.closed_void_count += result.repair_closed_voxel_count;
+    append_removed_voxels();
     result.changed_voxel_ids.insert(
         result.changed_voxel_ids.end(),
         repair_result.newly_closed_voxel_ids.begin(),
         repair_result.newly_closed_voxel_ids.end());
     std::sort(result.changed_voxel_ids.begin(), result.changed_voxel_ids.end());
+    result.classification = current_classification(gas_grid);
     return result;
 }
 
