@@ -47,6 +47,12 @@ typedef struct ga_point3 {
     double z;
 } ga_point3;
 
+typedef struct ga_grid_spacing {
+    double x;
+    double y;
+    double z;
+} ga_grid_spacing;
+
 typedef struct ga_grid_dimensions {
     uint64_t x;
     uint64_t y;
@@ -70,7 +76,7 @@ typedef struct ga_reservoir_faces {
 
 typedef struct ga_grid_spec {
     ga_point3 origin;
-    double spacing;
+    ga_grid_spacing spacing;
     ga_grid_dimensions dimensions;
     ga_periodic_axes periodic;
     ga_reservoir_faces reservoir_faces;

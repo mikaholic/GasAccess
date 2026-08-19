@@ -116,6 +116,7 @@ std::optional<VoxelCoord> GasGrid::locate_voxel(const Point3& point) const noexc
     const auto x = locate_axis(
         point.x,
         grid_spec_.origin.x,
+        grid_spec_.spacing.x,
         grid_spec_.dimensions.x,
         grid_spec_.periodic.x);
     if (!x) {
@@ -125,6 +126,7 @@ std::optional<VoxelCoord> GasGrid::locate_voxel(const Point3& point) const noexc
     const auto y = locate_axis(
         point.y,
         grid_spec_.origin.y,
+        grid_spec_.spacing.y,
         grid_spec_.dimensions.y,
         grid_spec_.periodic.y);
     if (!y) {
@@ -134,6 +136,7 @@ std::optional<VoxelCoord> GasGrid::locate_voxel(const Point3& point) const noexc
     const auto z = locate_axis(
         point.z,
         grid_spec_.origin.z,
+        grid_spec_.spacing.z,
         grid_spec_.dimensions.z,
         grid_spec_.periodic.z);
     if (!z) {
@@ -151,11 +154,11 @@ Point3 GasGrid::voxel_center(const VoxelCoord& voxel_coord) const
 
     return {
         grid_spec_.origin.x
-            + (static_cast<double>(voxel_coord.x) + 0.5) * grid_spec_.spacing,
+            + (static_cast<double>(voxel_coord.x) + 0.5) * grid_spec_.spacing.x,
         grid_spec_.origin.y
-            + (static_cast<double>(voxel_coord.y) + 0.5) * grid_spec_.spacing,
+            + (static_cast<double>(voxel_coord.y) + 0.5) * grid_spec_.spacing.y,
         grid_spec_.origin.z
-            + (static_cast<double>(voxel_coord.z) + 0.5) * grid_spec_.spacing
+            + (static_cast<double>(voxel_coord.z) + 0.5) * grid_spec_.spacing.z
     };
 }
 
@@ -310,9 +313,6 @@ std::size_t GasGrid::state_index(GasState gas_state)
 
 VoxelId GasGrid::validate_and_count_voxels(const GridSpec& grid_spec)
 {
-    if (!std::isfinite(grid_spec.spacing) || grid_spec.spacing <= 0.0) {
-        throw std::invalid_argument("grid spacing must be finite and positive");
-    }
     if (!std::isfinite(grid_spec.origin.x)
         || !std::isfinite(grid_spec.origin.y)
         || !std::isfinite(grid_spec.origin.z)) {
@@ -334,15 +334,15 @@ VoxelId GasGrid::validate_and_count_voxels(const GridSpec& grid_spec)
 
     validate_axis_geometry(
         grid_spec.origin.x,
-        grid_spec.spacing,
+        grid_spec.spacing.x,
         grid_spec.dimensions.x);
     validate_axis_geometry(
         grid_spec.origin.y,
-        grid_spec.spacing,
+        grid_spec.spacing.y,
         grid_spec.dimensions.y);
     validate_axis_geometry(
         grid_spec.origin.z,
-        grid_spec.spacing,
+        grid_spec.spacing.z,
         grid_spec.dimensions.z);
 
     const auto xy = checked_multiply(grid_spec.dimensions.x, grid_spec.dimensions.y);
@@ -372,6 +372,7 @@ void GasGrid::validate_boundary_conditions(const GridSpec& grid_spec)
 std::optional<std::int64_t> GasGrid::locate_axis(
     double position,
     double origin,
+    double spacing,
     std::uint64_t dimension,
     bool periodic) const noexcept
 {
@@ -379,7 +380,7 @@ std::optional<std::int64_t> GasGrid::locate_axis(
         return std::nullopt;
     }
 
-    const double length = grid_spec_.spacing * static_cast<double>(dimension);
+    const double length = spacing * static_cast<double>(dimension);
     double relative = position - origin;
     if (!std::isfinite(relative)) {
         return std::nullopt;
@@ -400,7 +401,7 @@ std::optional<std::int64_t> GasGrid::locate_axis(
         return std::nullopt;
     }
 
-    const double raw_index = std::floor(relative / grid_spec_.spacing);
+    const double raw_index = std::floor(relative / spacing);
     if (raw_index < 0.0 || raw_index >= static_cast<double>(dimension)) {
         return std::nullopt;
     }

@@ -43,6 +43,45 @@ elseif(MSVC)
     target_compile_options(gasaccess PRIVATE /W4)
 endif()
 
+option(GASACCESS_ENABLE_MPI "Build the optional MPI gas-grid layer" OFF)
+
+if(GASACCESS_ENABLE_MPI)
+    find_package(MPI REQUIRED COMPONENTS CXX)
+
+    add_library(gasaccess_mpi
+        src/mpi_gas_grid.cpp
+    )
+    add_library(GasAccess::gasaccess_mpi ALIAS gasaccess_mpi)
+    target_compile_features(gasaccess_mpi PUBLIC cxx_std_17)
+    target_include_directories(gasaccess_mpi
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(gasaccess_mpi
+        PUBLIC
+            GasAccess::gasaccess
+            MPI::MPI_CXX
+    )
+    set_target_properties(gasaccess_mpi PROPERTIES
+        CXX_EXTENSIONS OFF
+        VERSION ${PROJECT_VERSION}
+        SOVERSION ${PROJECT_VERSION_MAJOR}
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_mpi PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_mpi PRIVATE /W4)
+    endif()
+endif()
+
 add_executable(gasaccess_reference_driver
     tools/reference_driver.cpp
 )
@@ -278,6 +317,46 @@ if(BUILD_TESTING)
         NAME gasaccess_affected_region_repair_tests
         COMMAND gasaccess_affected_region_repair_tests
     )
+
+    if(GASACCESS_ENABLE_MPI)
+        add_executable(gasaccess_mpi_grid_tests
+            tests/test_mpi_gas_grid.cpp
+        )
+        target_link_libraries(gasaccess_mpi_grid_tests
+            PRIVATE GasAccess::gasaccess_mpi
+        )
+
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(gasaccess_mpi_grid_tests PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+            )
+        elseif(MSVC)
+            target_compile_options(gasaccess_mpi_grid_tests PRIVATE /W4)
+        endif()
+
+        foreach(mpi_rank_count IN ITEMS 1 2 4)
+            add_test(
+                NAME gasaccess_mpi_grid_tests_${mpi_rank_count}_ranks
+                COMMAND
+                    ${MPIEXEC_EXECUTABLE}
+                    ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                    ${MPIEXEC_PREFLAGS}
+                    $<TARGET_FILE:gasaccess_mpi_grid_tests>
+                    ${MPIEXEC_POSTFLAGS}
+            )
+            set_tests_properties(
+                gasaccess_mpi_grid_tests_${mpi_rank_count}_ranks
+                PROPERTIES
+                    LABELS "mpi"
+                    PROCESSORS ${mpi_rank_count}
+                    TIMEOUT 60
+            )
+        endforeach()
+    endif()
 
     add_test(
         NAME gasaccess_reference_open_trench

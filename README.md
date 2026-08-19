@@ -4,15 +4,13 @@ GasAccess is a C++17 library for geometric gas-accessibility analysis on a
 Cartesian voxel grid. Development follows the recorded phased plan in
 [`docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md`](docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md).
 
-The current implementation provides Phase 1 grid geometry/topology, Phase 2
-static atom voxelization, Phase 3 exterior classification, Phase 4 cached site
-queries with C interoperability, the Phase 5 deposition-update baseline, and
-the Phase 6 standalone reference driver, the Phase 7 conservative local
-topology filter, Phase 8 serial affected-region repair, and the Phase 9
-single-site KMC query contract:
+The current implementation is complete through Phase 11: the serial
+geometry/connectivity/update/query baseline, scale optimization, non-cubic
+voxel support, and the first optional MPI ownership and gas-state halo layer.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
+- independent finite positive x/y/z voxel spacings;
 - voxel coordinate/index and world-coordinate conversion;
 - allocation-free six-face neighbor lookup;
 - independently periodic x, y, and z axes;
@@ -37,7 +35,12 @@ single-site KMC query contract:
 - sorted changed-voxel reporting and post-update classification counts;
 - an exception-safe C99 API with opaque grid and update-result handles;
 - deterministic open-trench, sealed-trench, and bulk workload generation;
-- machine-readable correctness checksums, timings, and memory reporting.
+- machine-readable correctness checksums, timings, and memory reporting;
+- MPI-aligned global dimensions and exact integer owned ranges;
+- one layer of face-connected gas ghost states with reusable communication
+  buffers;
+- local-only distributed site queries after gas-state halo exchange;
+- defensive atom-ghost-distance validation.
 
 The Phase 3 classifier is the correctness-reference implementation that later
 incremental update algorithms are tested against. The focused KMC query
@@ -49,20 +52,28 @@ contract is documented in
 - CMake 3.16 or newer
 - A C++17 compiler
 - A C99 compiler when building the C API test client
+- An MPI C++ implementation when `GASACCESS_ENABLE_MPI=ON`
 
-The core and its current tests have no third-party library dependencies.
+The serial core has no third-party library dependencies. MPI is the only
+dependency of the optional `gasaccess_mpi` target.
 
 ## Compile
 
 Configure and compile an optimized build:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake -S . -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=ON \
+    -DGASACCESS_ENABLE_MPI=ON
 cmake --build build --parallel
 ```
 
-This produces the static library `build/libgasaccess.a`, the standalone
-`build/gasaccess_reference_driver`, and nine dedicated test executables:
+Leave `GASACCESS_ENABLE_MPI` off, its default, for a serial-only build.
+
+With MPI enabled this produces `build/libgasaccess.a`,
+`build/libgasaccess_mpi.a`, the standalone reference driver, the nine serial
+test executables, and `build/gasaccess_mpi_grid_tests`.
 
 - `build/gasaccess_grid_tests`
 - `build/gasaccess_atom_voxelizer_tests`
@@ -93,6 +104,16 @@ To display every individual test-group result directly:
 ./build/gasaccess_local_topology_filter_tests
 ./build/gasaccess_affected_region_repair_tests
 ```
+
+The registered MPI tests exercise one, two, and four ranks:
+
+```sh
+ctest --test-dir build --output-on-failure -L mpi
+```
+
+The MPI data contract, SPPARKS field mapping, boundary override, aligned-grid
+helper, and update/query ordering are documented in
+[`docs/integration/MPI_GRID.md`](docs/integration/MPI_GRID.md).
 
 ## Reference driver
 

@@ -81,7 +81,7 @@ GridSpec make_grid_spec(
     std::uint64_t z = 5)
 {
     GridSpec grid_spec{};
-    grid_spec.spacing = 1.0;
+    grid_spec.spacing = {1.0, 1.0, 1.0};
     grid_spec.dimensions = {x, y, z};
     return grid_spec;
 }

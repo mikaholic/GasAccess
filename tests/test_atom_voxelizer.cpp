@@ -79,7 +79,7 @@ GridSpec make_grid_spec(
     std::uint64_t z = 5)
 {
     GridSpec grid_spec{};
-    grid_spec.spacing = 1.0;
+    grid_spec.spacing = {1.0, 1.0, 1.0};
     grid_spec.dimensions = {x, y, z};
     return grid_spec;
 }
@@ -126,9 +126,9 @@ bool reference_is_blocked(
 {
     const auto& grid_spec = gas_grid.grid_spec();
     const Point3 lengths{
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.x),
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.y),
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.z)
+        grid_spec.spacing.x * static_cast<double>(grid_spec.dimensions.x),
+        grid_spec.spacing.y * static_cast<double>(grid_spec.dimensions.y),
+        grid_spec.spacing.z * static_cast<double>(grid_spec.dimensions.z)
     };
     const auto center = gas_grid.voxel_center(voxel_id);
 
@@ -326,7 +326,7 @@ void test_large_origin_and_small_spacing()
 {
     auto grid_spec = make_grid_spec(3, 1, 1);
     grid_spec.origin = {1.0e8, -2.0e8, 5.0e7};
-    grid_spec.spacing = 1.0e-3;
+    grid_spec.spacing = {1.0e-3, 1.0e-3, 1.0e-3};
     GasGrid gas_grid(grid_spec);
 
     const Atom atom{gas_grid.voxel_center({1, 0, 0}), 0.0};
@@ -393,7 +393,11 @@ void test_randomized_against_brute_force()
         for (int sample = 0; sample < 12; ++sample) {
             GridSpec grid_spec{};
             grid_spec.origin = {-1.0, 0.25, 5.0};
-            grid_spec.spacing = 0.4;
+            grid_spec.spacing = {
+                0.31 + 0.01 * static_cast<double>(sample % 3),
+                0.47 + 0.02 * static_cast<double>(sample % 4),
+                0.73 + 0.03 * static_cast<double>(sample % 5)
+            };
             grid_spec.dimensions = {5, 4, 3};
             grid_spec.periodic = {
                 (mask & 1U) != 0U,
@@ -402,9 +406,9 @@ void test_randomized_against_brute_force()
             };
 
             const Point3 lengths{
-                grid_spec.spacing * static_cast<double>(grid_spec.dimensions.x),
-                grid_spec.spacing * static_cast<double>(grid_spec.dimensions.y),
-                grid_spec.spacing * static_cast<double>(grid_spec.dimensions.z)
+                grid_spec.spacing.x * static_cast<double>(grid_spec.dimensions.x),
+                grid_spec.spacing.y * static_cast<double>(grid_spec.dimensions.y),
+                grid_spec.spacing.z * static_cast<double>(grid_spec.dimensions.z)
             };
 
             std::vector<Atom> atoms;

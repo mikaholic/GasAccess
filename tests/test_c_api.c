@@ -23,7 +23,7 @@ static ga_grid_spec make_grid_spec(uint64_t x, uint64_t y, uint64_t z)
 {
     ga_grid_spec grid_spec;
     memset(&grid_spec, 0, sizeof(grid_spec));
-    grid_spec.spacing = 1.0;
+    grid_spec.spacing = (ga_grid_spacing){1.0, 1.0, 1.0};
     grid_spec.dimensions.x = x;
     grid_spec.dimensions.y = y;
     grid_spec.dimensions.z = z;
@@ -294,6 +294,29 @@ static void test_c_error_handling(void)
     ga_grid_destroy(NULL);
 }
 
+static void test_c_non_cubic_spacing(void)
+{
+    ga_grid_spec grid_spec = make_grid_spec(2, 2, 2);
+    ga_grid* grid = NULL;
+    ga_voxel_id outside_id;
+    uint8_t is_accessible = 0;
+
+    grid_spec.spacing = (ga_grid_spacing){0.5, 1.0, 2.0};
+    REQUIRE(ga_grid_create(&grid_spec, &grid) == GA_STATUS_SUCCESS);
+    outside_id = get_voxel_id(grid, 1, 1, 1);
+    REQUIRE(ga_grid_set_state(
+        grid,
+        outside_id,
+        GA_GAS_STATE_OUTSIDE_ACCESSIBLE) == GA_STATUS_SUCCESS);
+    REQUIRE(ga_is_site_accessible(
+        grid,
+        (ga_point3){0.75, 1.5, 3.0},
+        &is_accessible) == GA_STATUS_SUCCESS);
+    REQUIRE(is_accessible == 1);
+
+    ga_grid_destroy(grid);
+}
+
 int main(void)
 {
     test_c_grid_classification_and_queries();
@@ -316,11 +339,16 @@ int main(void)
         printf("[PASS] C deposition update\n");
     }
 
+    test_c_non_cubic_spacing();
+    if (failure_count == 0) {
+        printf("[PASS] C non-cubic spacing\n");
+    }
+
     if (failure_count != 0) {
         fprintf(stderr, "%d C API test failure(s)\n", failure_count);
         return 1;
     }
 
-    printf("4 C API test groups passed\n");
+    printf("5 C API test groups passed\n");
     return 0;
 }

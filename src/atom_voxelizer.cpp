@@ -87,9 +87,9 @@ Point3 normalized_atom_position(const GasGrid& gas_grid, const Atom& atom)
 
     const auto& grid_spec = gas_grid.grid_spec();
     const Point3 lengths{
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.x),
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.y),
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.z)
+        grid_spec.spacing.x * static_cast<double>(grid_spec.dimensions.x),
+        grid_spec.spacing.y * static_cast<double>(grid_spec.dimensions.y),
+        grid_spec.spacing.z * static_cast<double>(grid_spec.dimensions.z)
     };
 
     Point3 position = atom.position;
@@ -170,9 +170,9 @@ VoxelId AtomVoxelizer::voxelize_impl(
 
     const auto& grid_spec = gas_grid.grid_spec();
     const Point3 lengths{
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.x),
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.y),
-        grid_spec.spacing * static_cast<double>(grid_spec.dimensions.z)
+        grid_spec.spacing.x * static_cast<double>(grid_spec.dimensions.x),
+        grid_spec.spacing.y * static_cast<double>(grid_spec.dimensions.y),
+        grid_spec.spacing.z * static_cast<double>(grid_spec.dimensions.z)
     };
 
     VoxelId newly_solid_count = 0;
@@ -190,25 +190,25 @@ VoxelId AtomVoxelizer::voxelize_impl(
             static_cast<std::uint64_t>(atom_voxel->x),
             grid_spec.dimensions.x,
             excluded_radius,
-            grid_spec.spacing,
+            grid_spec.spacing.x,
             grid_spec.periodic.x);
         const auto y_candidates = make_axis_candidates(
             static_cast<std::uint64_t>(atom_voxel->y),
             grid_spec.dimensions.y,
             excluded_radius,
-            grid_spec.spacing,
+            grid_spec.spacing.y,
             grid_spec.periodic.y);
         const auto z_candidates = make_axis_candidates(
             static_cast<std::uint64_t>(atom_voxel->z),
             grid_spec.dimensions.z,
             excluded_radius,
-            grid_spec.spacing,
+            grid_spec.spacing.z,
             grid_spec.periodic.z);
 
         for (std::uint64_t z_offset = 0; z_offset < z_candidates.count; ++z_offset) {
             const auto z = axis_index(z_candidates, z_offset);
             const double z_center = grid_spec.origin.z
-                + (static_cast<double>(z) + 0.5) * grid_spec.spacing;
+                + (static_cast<double>(z) + 0.5) * grid_spec.spacing.z;
             const double z_distance = axis_distance(
                 z_center,
                 atom_position.z,
@@ -222,7 +222,7 @@ VoxelId AtomVoxelizer::voxelize_impl(
             for (std::uint64_t y_offset = 0; y_offset < y_candidates.count; ++y_offset) {
                 const auto y = axis_index(y_candidates, y_offset);
                 const double y_center = grid_spec.origin.y
-                    + (static_cast<double>(y) + 0.5) * grid_spec.spacing;
+                    + (static_cast<double>(y) + 0.5) * grid_spec.spacing.y;
                 const double y_distance = axis_distance(
                     y_center,
                     atom_position.y,
@@ -242,7 +242,7 @@ VoxelId AtomVoxelizer::voxelize_impl(
                      ++x_offset) {
                     const auto x = axis_index(x_candidates, x_offset);
                     const double x_center = grid_spec.origin.x
-                        + (static_cast<double>(x) + 0.5) * grid_spec.spacing;
+                        + (static_cast<double>(x) + 0.5) * grid_spec.spacing.x;
                     const double x_distance = axis_distance(
                         x_center,
                         atom_position.x,

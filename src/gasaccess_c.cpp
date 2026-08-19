@@ -106,7 +106,11 @@ gasaccess::GridSpec convert_grid_spec(const ga_grid_spec& c_grid_spec)
 
     gasaccess::GridSpec grid_spec{};
     grid_spec.origin = convert_point(c_grid_spec.origin);
-    grid_spec.spacing = c_grid_spec.spacing;
+    grid_spec.spacing = {
+        c_grid_spec.spacing.x,
+        c_grid_spec.spacing.y,
+        c_grid_spec.spacing.z
+    };
     grid_spec.dimensions = {
         c_grid_spec.dimensions.x,
         c_grid_spec.dimensions.y,

@@ -72,7 +72,7 @@ std::size_t evaluate_gas_reactions(
 GridSpec make_trench_spec()
 {
     GridSpec grid_spec{};
-    grid_spec.spacing = 1.0;
+    grid_spec.spacing = {1.0, 1.0, 1.0};
     grid_spec.dimensions = {5, 1, 5};
     grid_spec.reservoir_faces.z_high = true;
     return grid_spec;
@@ -122,7 +122,7 @@ void test_single_call_contract_observes_pinch_off()
 void test_query_uses_current_position_without_registration()
 {
     GridSpec grid_spec{};
-    grid_spec.spacing = 1.0;
+    grid_spec.spacing = {1.0, 1.0, 1.0};
     grid_spec.dimensions = {5, 3, 3};
     GasGrid gas_grid(grid_spec);
     gas_grid.fill_gas_state(GasState::Solid);
@@ -144,7 +144,7 @@ void test_query_uses_current_position_without_registration()
 void test_single_call_contract_obeys_periodicity()
 {
     GridSpec periodic_spec{};
-    periodic_spec.spacing = 1.0;
+    periodic_spec.spacing = {1.0, 1.0, 1.0};
     periodic_spec.dimensions = {4, 3, 3};
     periodic_spec.periodic.x = true;
     GasGrid periodic_grid(periodic_spec);

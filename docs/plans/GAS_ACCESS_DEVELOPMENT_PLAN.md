@@ -1,7 +1,7 @@
 # GasAccess Development Plan
 
-Status: in development — Phase 10 complete
-Last updated: 2026-08-17
+Status: in development — Phase 11 complete
+Last updated: 2026-08-19
 
 This is the working plan for developing GasAccess as an independent C++/C
 library and later integrating it with an MPI-parallel kinetic Monte Carlo
@@ -59,6 +59,13 @@ Enum values will follow the established scoped style, for example
 Periodicity is independently configurable for x, y, and z. All eight periodic
 axis combinations must be supported.
 
+The GasAccess boundary configuration is independent of the host KMC boundary
+configuration. In particular, a production KMC domain may remain periodic in
+all three axes while its GasAccess view uses periodic x/y, non-periodic z, a
+top-z reservoir face, and a closed/non-source bottom-z face. The adapter must
+use the caller-supplied GasAccess settings rather than copying the SPPARKS
+periodicity blindly.
+
 Periodic behavior applies consistently to:
 
 - voxel neighbor traversal;
@@ -81,7 +88,9 @@ to external gas.
 
 ### 2.3 Initial physical model
 
-- Uniform Cartesian voxel grid.
+- Axis-aligned Cartesian grid with uniform spacing along each individual axis.
+  The x, y, and z spacings may differ, so voxels may be rectangular cuboids
+  rather than cubes.
 - Six-face connectivity between gas voxels.
 - No gas leakage through edge-only or corner-only contact.
 - Connectivity is position-only geometric connectivity. Molecular orientation,
@@ -106,6 +115,15 @@ to external gas.
 - Gas-to-gas connectivity and reaction-site-to-gas adjacency are separate
   policies. Gas connectivity remains six-neighbor even if a different fixed
   site-contact stencil is later justified.
+
+The graph algorithms do not require cubic voxels: six-neighbor flood-fill,
+cached site queries, the index-space `3x3x3` topology filter, and affected-region
+repair depend only on voxel indices and face adjacency. Geometry operations do
+require per-axis handling. Coordinate lookup, voxel centers, periodic lengths,
+and atom candidate bounds must use the corresponding x/y/z spacing. Spherical
+steric exclusion remains a sphere in physical coordinates: the final test is
+the Euclidean distance to the voxel center, not a scaled index distance that
+would incorrectly turn the sphere into an ellipsoid.
 
 ### 2.4 Performance requirements
 
@@ -154,6 +172,12 @@ must be checked for integer overflow.
 The C API will represent stored state with `uint8_t` and named `GA_GAS_*`
 constants rather than relying on the compiler-dependent storage size of a C
 enum. MPI state exchange will likewise send the fixed-width byte representation.
+
+`GridSpec` will use a three-component spacing value in Phase 11. Each component
+is a finite positive `double`; the C representation will likewise use three
+components. An isotropic grid is represented by equal components. This is a
+geometry/API generalization only and does not change voxel identifiers, state
+storage, or the six-neighbor graph.
 
 Bit-packing is deliberately deferred. If Phase 10 demonstrates that state
 memory is limiting, two measured alternatives are a two-bit packed state or
@@ -527,40 +551,107 @@ Expected production code: 200-500 lines unless a new storage backend is approved
 
 ### Milestone C: MPI and KMC integration
 
-Milestone C does not begin until the existing decomposition interfaces are
-provided. Required information includes ownership rules, ghost width and
-exchange API, Cartesian rank neighbors, periodic rank topology, event ownership,
-global/local coordinate conversion, and propensity invalidation interfaces.
+Milestone C reuses the SPPARKS-style off-lattice decomposition; GasAccess will
+not implement an independent domain decomposition. The host supplies a small
+decomposition descriptor rather than exposing SPPARKS private bin internals to
+the core library. The reviewed SPPARKS data provide global/subdomain bounds,
+`procgrid`, `myloc`, per-axis periodicity, and the existing `world` MPI
+communicator.
 
-#### Phase 11: decomposition adapter and gas ghost exchange
+The production off-lattice application currently uses periodic boundaries on
+all three axes, while the generic GasAccess MPI implementation and its tests
+must also support non-periodic axes.
+
+#### Phase 11: anisotropic grid, decomposition adapter, and gas ghost exchange
 
 Scope:
 
-- Map global gas voxels to owned and ghost storage using the KMC decomposition.
-- Exchange occupancy and accessibility flags with spatial neighbor ranks.
-- Wrap MPI-global edges consistently on every periodic axis.
+- Replace the current scalar grid spacing in the C++ and C APIs with explicit
+  x/y/z spacing and update coordinate lookup, voxel centers, periodic lengths,
+  atom candidate ranges, validation, drivers, and tests.
+- Preserve spherical excluded-volume voxelization in physical coordinates when
+  the per-axis spacings differ. Do not scale the radius independently by axis
+  in the final distance test.
+- Add an alignment helper that takes a requested nominal resolution and, for
+  each axis, chooses a global voxel dimension divisible by that axis's process
+  count, then reports the exact spacing as `box_length / dimension`. Do not
+  silently modify a directly supplied `GridSpec`.
+- Add an optional MPI decomposition descriptor containing the existing `world`
+  communicator, global/local box bounds, `procgrid`, and `myloc`. Gas periodic
+  axes and reservoir faces are supplied separately from the KMC boundary
+  settings.
+- Require exact voxel/decomposition alignment for the initial implementation:
+  grid origin equals the global box lower bound, the dimension times spacing
+  equals the corresponding box length on each axis, and every global voxel
+  dimension is divisible by the process-grid dimension on that axis. Equal
+  x/y/z spacing is not required.
+- Derive owned global voxel-index ranges by integer arithmetic so no voxel is
+  split between ranks and every SPPARKS subdomain face is a voxel face.
+- Add one layer of face-connected gas ghost voxels, sufficient for the
+  six-neighbor connectivity model and the default position query.
+- Derive the six face-neighbor ranks from `procgrid`, `myloc`, and periodicity.
+  Use local copies for periodic self-neighbors and no neighbor at a
+  non-periodic global edge.
+- Exchange the fixed-width one-byte gas states over `world` separately from
+  `CommOffLattice`, whose messages contain atom/site arrays rather than gas
+  voxels.
+- Consume already synchronized owned and ghost atoms when building owned gas
+  occupancy. Ignore periodic image atoms across a global face that GasAccess
+  treats as non-periodic. Validate again inside GasAccess that the supplied
+  host atom ghost distance (the minimum relevant off-lattice bin size) is at
+  least `max(R_atom + R_precursor)`, even though KMC is expected to guarantee
+  this already.
+- Ensure a completed gas halo exchange precedes the KMC query loop; ordinary
+  `query.is_site_accessible(atom_position)` calls perform no MPI operation.
 - Do not implement distributed flood-fill yet.
 
 Tests:
 
+- Per-axis coordinate/index round trips, voxel centers, periodic wrapping, and
+  invalid spacing values on non-cubic grids.
+- Non-cubic atom voxelization against a brute-force physical-distance oracle,
+  including periodic seams and different spacing orderings.
+- Serial classification, local topology filtering, affected-region repair, and
+  position queries on non-cubic grids match their reference results, confirming
+  that topology behavior is independent of voxel aspect ratio.
 - One-rank behavior matches the serial library.
-- Owned/ghost states match on two- and four-rank decompositions.
-- Tests cover internal rank interfaces and global periodic seams.
+- The alignment helper returns exactly covered boxes, near-target per-axis
+  spacings, and divisible dimensions. Direct validation accepts compatible
+  grids and rejects misaligned origin, extent, spacing, and process-grid
+  divisibility.
+- Owned index ranges cover the global grid exactly once on one, two, and four
+  ranks.
+- Owned/ghost states match on x-, y-, and z-split decompositions.
+- Tests cover periodic self-copies, cross-rank periodic seams, non-periodic
+  global edges, and queries whose face stencil crosses a rank boundary.
+- Ghost-distance validation accepts adequate SPPARKS atom halos and rejects an
+  excluded radius larger than the supplied distance.
+- A fully periodic KMC descriptor can be paired with a GasAccess configuration
+  having periodic x/y, non-periodic z, only the top-z face as a reservoir, and
+  no gas-state wrap or periodic atom image across z.
 
 Exit gate:
 
-- Every rank has correct local and ghost gas state after exchange.
+- Non-cubic geometry is correct, every rank has correct owned and face-ghost
+  gas state after exchange, and a normal site query requires only local/ghost
+  reads.
 
-Expected production code: 300-550 lines, depending on the supplied adapter API.
+Expected production code: 450-750 lines, depending on the supplied adapter API.
 
 #### Phase 12: distributed initial flood-fill
 
 Scope:
 
 - Maintain a local frontier per rank.
-- Send frontier entries to the owning neighbor rank.
+- Send frontier entries only across face boundaries to the owning neighbor
+  rank using `world`.
 - Use a small collective only to detect global termination.
 - Avoid global gas-graph replication and routine all-gather.
+- Seed non-periodic reservoir faces only on ranks owning those global faces.
+  A KMC-periodic axis that the caller configures as non-periodic for GasAccess
+  follows this face-source rule; a GasAccess domain that remains fully periodic
+  uses configured explicit reservoir voxels.
+- Synchronize final face halos before returning control to the KMC query loop.
 
 Tests:
 
@@ -580,12 +671,16 @@ Expected production code: 350-600 lines.
 
 Scope:
 
-- Extend topology checks across owned/ghost boundaries.
+- Keep the local topology filter conservative at rank boundaries. If its
+  `3x3x3` proof would require unavailable edge/corner halo data, escalate to
+  distributed repair rather than declaring the deletion safe.
 - Exchange connectivity-repair frontiers only when required.
 - Detect distributed termination.
-- Relabel affected components, synchronize ghosts, and report changed local
-  sites.
+- Relabel affected components, synchronize face ghosts, and retain changed
+  owned voxel IDs as an auxiliary diagnostic result.
 - Retain distributed full recomputation as a debug/fallback mode.
+- Do not introduce atom/site registration, affected-atom lists, or selective
+  propensity invalidation.
 
 Tests:
 
@@ -604,10 +699,20 @@ Expected production code: 450-750 lines.
 
 Scope:
 
-- Adapt real atom, site, deposition, domain, and propensity interfaces.
+- Adapt the real atom, deposition, and SPPARKS `Domain` interfaces into the
+  neutral GasAccess descriptors.
+- Supply the effective GasAccess periodic axes and reservoir faces independently
+  from the SPPARKS boundary flags; the expected production configuration is
+  periodic x/y, non-periodic z, with the top-z face connected to the reservoir.
 - Build/initialize the grid from the KMC structure.
-- Invoke updates only after geometry-changing events.
-- Recalculate only affected reaction propensities.
+- Schedule work as: synchronize SPPARKS atoms, update gas occupancy and
+  connectivity, exchange gas-state halos, then enter the KMC site loop.
+- Use only `query.is_site_accessible(atom_position)` while KMC iterates sites;
+  KMC retains responsibility for its normal full rate/event recalculation.
+- Use the incremental deposition updater only for monotonic gas-to-solid
+  changes. If MD relaxation can unblock or move occupancy between voxels,
+  rebuild occupancy from the synchronized current atoms and run distributed
+  reclassification as the correctness baseline.
 - Run the supplied million-atom structure and representative event sequence.
 - Measure strong scaling, communication volume, update latency, query throughput,
   and end-to-end KMC overhead.
@@ -617,6 +722,9 @@ Tests:
 - A mock KMC integration test precedes changes to the real simulator.
 - Integrated results match the standalone library on the same geometry/events.
 - Normal site queries perform no collectives and require only local/ghost state.
+- Atom ghost cutoff validation is exercised against the maximum excluded
+  radius used by the integration.
+- MD-relaxed geometries match a clean rebuild from the same current atoms.
 - Debug full recomputation periodically checks incremental state during long runs.
 
 Exit gate:
@@ -726,10 +834,32 @@ Before Phase 9:
 
 Before Phase 11:
 
-- KMC decomposition and ghost-exchange interfaces;
-- MPI topology and ownership rules;
-- local/global atom and site identifiers;
-- existing propensity-update mechanism.
+- Confirmed: reuse SPPARKS `Domain` global/subdomain bounds, `procgrid`, and
+  `myloc`; do not create another domain decomposition.
+- Confirmed: use exact voxel/subdomain face alignment and integer owned ranges.
+- Confirmed: allow per-axis spacing so rectangular cuboid voxels can align
+  exactly with each decomposed box axis; equal x/y/z spacing is not required.
+- Confirmed: the production off-lattice application is fully periodic, while
+  the generic library must also support non-periodic MPI boundaries. The
+  GasAccess boundary configuration may override the KMC setting; the expected
+  production call makes z non-periodic and uses the top-z reservoir face.
+- Confirmed: use the existing `world` communicator for a separate gas-state
+  face-halo exchange; atom ghosts are already synchronized before queries.
+- Confirmed: implement a defensive GasAccess check that the supplied atom ghost
+  distance covers `max(R_atom + R_precursor)` even though KMC should already
+  enforce this condition.
+- Confirmed: the KMC integration requires only the position-based accessibility
+  query and does not need selective invalidation.
+- Still required during integration: provide the requested nominal voxel
+  resolution; the alignment helper will derive divisible dimensions and report
+  the resulting per-axis spacing.
+- Still required during integration: expose the minimum off-lattice bin/ghost
+  distance and maximum `R_atom + R_precursor` to the defensive validator.
+- Still required during integration: confirm whether the bottom-z GasAccess
+  face remains closed/non-source; the current planned default is top-z source
+  only.
+- Confirmed: OpenMPI 4.1.1 is available through `mpicxx` and `mpiexec`; CMake
+  discovers MPI when `GASACCESS_ENABLE_MPI=ON`.
 
 ## 9. Progress record
 
@@ -744,7 +874,7 @@ Before Phase 11:
 - [x] Phase 8: serial affected-region repair
 - [x] Phase 9: single-site KMC query contract
 - [x] Phase 10: serial scale and storage optimization
-- [ ] Phase 11: decomposition adapter and gas ghost exchange
+- [x] Phase 11: anisotropic grid, decomposition adapter, and gas ghost exchange
 - [ ] Phase 12: distributed initial flood-fill
 - [ ] Phase 13: distributed incremental repair
 - [ ] Phase 14: KMC integration and production acceptance
@@ -1007,3 +1137,42 @@ Update this checklist only when a phase's tests and exit gate have passed.
   treated as errors. Valgrind Memcheck reported zero errors and no leaks for
   the grid, change-capturing voxelizer, deposition updater, C API, and
   end-to-end pinch-off driver suites.
+
+#### Phase 11 completion — 2026-08-19
+
+- Replaced scalar C++ and C grid spacing with explicit x/y/z components.
+  Coordinate mapping, voxel centers, periodic lengths, candidate bounds, the C
+  adapter, and reference-driver inputs now handle rectangular cuboid voxels.
+- Preserved spherical steric exclusion in physical coordinates and extended
+  the randomized brute-force voxelization differential test to non-cubic
+  spacing across all eight periodic-axis combinations.
+- Added `make_aligned_grid_geometry()` to select near-requested per-axis
+  spacing with global dimensions divisible by the supplied MPI process grid.
+  Direct specifications remain validation-only and are never silently changed.
+- Added the optional `GasAccess::gasaccess_mpi` target with
+  `MpiDecompositionSpec`, exact SPPARKS-compatible x-fastest ownership,
+  global/local bound validation, integer owned ranges, and independently
+  configured GasAccess periodic/reservoir boundaries.
+- Added `DistributedGasGrid` with owned-voxel occupancy construction from
+  synchronized atom views, one layer of face ghost state, reusable message
+  buffers, nonblocking point-to-point halo exchange, periodic self-copy, and no
+  communication across a non-periodic global edge.
+- Added defensive validation of the declared and per-atom excluded radius
+  against the supplied atom ghost distance. Periodic image atoms outside an
+  effective non-periodic GasAccess boundary are ignored.
+- Added `DistributedGasAccessibilityQuery`; its normal
+  `query.is_site_accessible(atom_position)` call reads only owned/face-ghost
+  state and performs no MPI operation.
+- Added focused one-, two-, and four-rank tests covering aligned ownership,
+  x/y/z decompositions, mixed and fully periodic gas boundaries, periodic
+  seams, self-neighbors, non-periodic z edges, cross-rank queries, non-cubic
+  distributed voxelization, and ghost-distance rejection.
+- Passed all 18 registered CTest cases with GCC 8.5 and C/C++ warnings treated
+  as errors. Serial grid, voxelizer, and C API Valgrind checks reported no
+  errors or definite leaks. The MPI suite passed an invalid-memory Valgrind
+  check; full leak reporting showed only process-lifetime allocations rooted
+  in this OpenMPI build's `MPI_Init` and component loader.
+- Documented the build, SPPARKS field mapping, boundary override, ownership,
+  halo, atom coverage, and query-ordering contract in
+  `docs/integration/MPI_GRID.md`. Distributed exterior classification remains
+  Phase 12 work.

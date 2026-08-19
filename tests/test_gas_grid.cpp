@@ -92,7 +92,7 @@ GridSpec make_grid_spec(
     std::uint64_t z = 3)
 {
     GridSpec grid_spec{};
-    grid_spec.spacing = 1.0;
+    grid_spec.spacing = {1.0, 1.0, 1.0};
     grid_spec.dimensions = {x, y, z};
     return grid_spec;
 }
@@ -121,7 +121,7 @@ void test_grid_indexing_and_state_storage()
 {
     auto grid_spec = make_grid_spec(4, 3, 2);
     grid_spec.origin = {-1.0, 2.0, 10.0};
-    grid_spec.spacing = 0.5;
+    grid_spec.spacing = {0.5, 0.5, 0.5};
     GasGrid grid(grid_spec);
 
     REQUIRE(grid.voxel_count() == 24);
@@ -190,15 +190,15 @@ void test_grid_indexing_and_state_storage()
 void test_invalid_grid_specs()
 {
     auto grid_spec = make_grid_spec();
-    grid_spec.spacing = 0.0;
+    grid_spec.spacing.x = 0.0;
     REQUIRE_THROWS_AS(GasGrid grid(grid_spec), std::invalid_argument);
 
     grid_spec = make_grid_spec();
-    grid_spec.spacing = -1.0;
+    grid_spec.spacing.y = -1.0;
     REQUIRE_THROWS_AS(GasGrid grid(grid_spec), std::invalid_argument);
 
     grid_spec = make_grid_spec();
-    grid_spec.spacing = std::numeric_limits<double>::infinity();
+    grid_spec.spacing.z = std::numeric_limits<double>::infinity();
     REQUIRE_THROWS_AS(GasGrid grid(grid_spec), std::invalid_argument);
 
     grid_spec = make_grid_spec();
@@ -207,7 +207,7 @@ void test_invalid_grid_specs()
 
     grid_spec = make_grid_spec();
     grid_spec.origin.x = 1.0e16;
-    grid_spec.spacing = 0.1;
+    grid_spec.spacing = {0.1, 0.1, 0.1};
     REQUIRE_THROWS_AS(GasGrid grid(grid_spec), std::invalid_argument);
 
     grid_spec = make_grid_spec(0, 3, 3);
@@ -352,7 +352,7 @@ void test_world_coordinate_mapping()
 {
     auto grid_spec = make_grid_spec(4, 3, 2);
     grid_spec.origin = {1.0, 2.0, 3.0};
-    grid_spec.spacing = 0.5;
+    grid_spec.spacing = {0.5, 0.5, 0.5};
     grid_spec.periodic = {true, false, true};
     GasGrid grid(grid_spec);
 
@@ -381,6 +381,31 @@ void test_world_coordinate_mapping()
     }
 }
 
+void test_non_cubic_world_geometry()
+{
+    auto grid_spec = make_grid_spec(4, 3, 2);
+    grid_spec.origin = {1.0, -2.0, 10.0};
+    grid_spec.spacing = {0.5, 1.25, 2.0};
+    grid_spec.periodic = {true, false, true};
+    GasGrid grid(grid_spec);
+
+    const auto center = grid.voxel_center({2, 1, 0});
+    REQUIRE_NEAR(center.x, 2.25, 1.0e-12);
+    REQUIRE_NEAR(center.y, -0.125, 1.0e-12);
+    REQUIRE_NEAR(center.z, 11.0, 1.0e-12);
+
+    REQUIRE((grid.locate_voxel({2.25, -0.125, 11.0}) == VoxelCoord{2, 1, 0}));
+    REQUIRE((grid.locate_voxel({3.0, -2.0, 14.0}) == VoxelCoord{0, 0, 0}));
+    REQUIRE((grid.locate_voxel({0.75, -0.75, 9.0}) == VoxelCoord{3, 1, 1}));
+    REQUIRE(!grid.locate_voxel({1.0, 1.75, 10.0}));
+
+    for (VoxelId id = 0; id < grid.voxel_count(); ++id) {
+        const auto mapped_coordinate = grid.locate_voxel(grid.voxel_center(id));
+        REQUIRE(mapped_coordinate.has_value());
+        REQUIRE(*mapped_coordinate == grid.voxel_coord(id));
+    }
+}
+
 }  // namespace
 
 int main()
@@ -392,7 +417,8 @@ int main()
         {"all periodic axis combinations", test_all_periodic_axis_combinations},
         {"small periodic dimensions", test_small_periodic_dimensions_have_unique_neighbors},
         {"reservoir sources", test_reservoir_sources},
-        {"world coordinate mapping", test_world_coordinate_mapping}
+        {"world coordinate mapping", test_world_coordinate_mapping},
+        {"non-cubic world geometry", test_non_cubic_world_geometry}
     };
 
     std::size_t failure_count = 0;

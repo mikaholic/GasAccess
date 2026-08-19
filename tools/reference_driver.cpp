@@ -27,6 +27,7 @@ using gasaccess::AtomView;
 using gasaccess::ClassificationSummary;
 using gasaccess::GasGrid;
 using gasaccess::GasState;
+using gasaccess::GridSpacing;
 using gasaccess::GridSpec;
 using gasaccess::Point3;
 using gasaccess::VoxelCoord;
@@ -40,7 +41,7 @@ struct Options {
     std::uint64_t nx = 64;
     std::uint64_t ny = 32;
     std::uint64_t nz = 64;
-    double spacing = 1.0;
+    GridSpacing spacing{1.0, 1.0, 1.0};
     double atom_radius = 0.2;
     double precursor_radius = 0.25;
     std::uint64_t atom_count = 10000;
@@ -148,7 +149,10 @@ void print_help(const char* executable_name)
         << "Options:\n"
         << "  --scenario NAME       open-trench, sealed-trench, pinch-off, or bulk\n"
         << "  --nx N --ny N --nz N  voxel dimensions (defaults: 64 32 64)\n"
-        << "  --spacing VALUE       voxel spacing (default: 1.0)\n"
+        << "  --spacing VALUE       set all voxel spacings (default: 1.0)\n"
+        << "  --spacing-x VALUE     override x voxel spacing\n"
+        << "  --spacing-y VALUE     override y voxel spacing\n"
+        << "  --spacing-z VALUE     override z voxel spacing\n"
         << "  --atom-radius VALUE   solid atom radius (default: 0.2)\n"
         << "  --precursor-radius V  spherical steric radius (default: 0.25)\n"
         << "  --atom-count N        generated atom records for bulk (default: 10000)\n"
@@ -183,7 +187,14 @@ Options parse_options(int argc, char* argv[])
         } else if (option == "--nz") {
             options.nz = parse_uint64(require_value(), option);
         } else if (option == "--spacing") {
-            options.spacing = parse_double(require_value(), option);
+            const double spacing = parse_double(require_value(), option);
+            options.spacing = {spacing, spacing, spacing};
+        } else if (option == "--spacing-x") {
+            options.spacing.x = parse_double(require_value(), option);
+        } else if (option == "--spacing-y") {
+            options.spacing.y = parse_double(require_value(), option);
+        } else if (option == "--spacing-z") {
+            options.spacing.z = parse_double(require_value(), option);
         } else if (option == "--atom-radius") {
             options.atom_radius = parse_double(require_value(), option);
         } else if (option == "--precursor-radius") {
@@ -224,8 +235,10 @@ void validate_options(const Options& options)
     if (options.nx == 0 || options.ny == 0 || options.nz == 0) {
         throw std::invalid_argument("all voxel dimensions must be positive");
     }
-    if (!(options.spacing > 0.0)) {
-        throw std::invalid_argument("spacing must be positive");
+    if (!(options.spacing.x > 0.0)
+        || !(options.spacing.y > 0.0)
+        || !(options.spacing.z > 0.0)) {
+        throw std::invalid_argument("all spacing components must be positive");
     }
     if (options.atom_radius < 0.0 || options.precursor_radius < 0.0) {
         throw std::invalid_argument("atom and precursor radii must be nonnegative");
@@ -591,12 +604,14 @@ int run(const Options& options)
     const auto peak_rss_bytes = read_peak_rss_bytes();
 
     std::cout << std::boolalpha << std::fixed << std::setprecision(6);
-    std::cout << "driver_version=2\n";
+    std::cout << "driver_version=3\n";
     std::cout << "scenario=" << options.scenario << '\n';
     std::cout << "nx=" << options.nx << '\n';
     std::cout << "ny=" << options.ny << '\n';
     std::cout << "nz=" << options.nz << '\n';
-    std::cout << "spacing=" << options.spacing << '\n';
+    std::cout << "spacing_x=" << options.spacing.x << '\n';
+    std::cout << "spacing_y=" << options.spacing.y << '\n';
+    std::cout << "spacing_z=" << options.spacing.z << '\n';
     std::cout << "atom_radius=" << options.atom_radius << '\n';
     std::cout << "precursor_radius=" << options.precursor_radius << '\n';
     std::cout << "periodic_x=" << options.periodic_x << '\n';

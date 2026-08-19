@@ -33,6 +33,12 @@ struct Point3 {
     double z = 0.0;
 };
 
+struct GridSpacing {
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
 struct GridDimensions {
     std::uint64_t x = 0;
     std::uint64_t y = 0;
@@ -66,7 +72,7 @@ static_assert(sizeof(VoxelId) == 8, "VoxelId must occupy eight bytes");
 
 struct GridSpec {
     Point3 origin{};
-    double spacing = 0.0;
+    GridSpacing spacing{};
     GridDimensions dimensions{};
     PeriodicAxes periodic{};
     ReservoirFaces reservoir_faces{};
@@ -113,6 +119,7 @@ private:
     std::optional<std::int64_t> locate_axis(
         double position,
         double origin,
+        double spacing,
         std::uint64_t dimension,
         bool periodic) const noexcept;
     bool is_boundary_source(const VoxelCoord& voxel_coord) const noexcept;
