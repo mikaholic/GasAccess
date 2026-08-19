@@ -49,6 +49,7 @@ if(GASACCESS_ENABLE_MPI)
     find_package(MPI REQUIRED COMPONENTS CXX)
 
     add_library(gasaccess_mpi
+        src/distributed_exterior_classifier.cpp
         src/mpi_gas_grid.cpp
     )
     add_library(GasAccess::gasaccess_mpi ALIAS gasaccess_mpi)
@@ -350,6 +351,46 @@ if(BUILD_TESTING)
             )
             set_tests_properties(
                 gasaccess_mpi_grid_tests_${mpi_rank_count}_ranks
+                PROPERTIES
+                    LABELS "mpi"
+                    PROCESSORS ${mpi_rank_count}
+                    TIMEOUT 60
+            )
+        endforeach()
+
+        add_executable(gasaccess_distributed_classifier_tests
+            tests/test_distributed_exterior_classifier.cpp
+        )
+        target_link_libraries(gasaccess_distributed_classifier_tests
+            PRIVATE GasAccess::gasaccess_mpi
+        )
+
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(gasaccess_distributed_classifier_tests PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+            )
+        elseif(MSVC)
+            target_compile_options(gasaccess_distributed_classifier_tests
+                PRIVATE /W4
+            )
+        endif()
+
+        foreach(mpi_rank_count IN ITEMS 1 2 4)
+            add_test(
+                NAME gasaccess_distributed_classifier_tests_${mpi_rank_count}_ranks
+                COMMAND
+                    ${MPIEXEC_EXECUTABLE}
+                    ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                    ${MPIEXEC_PREFLAGS}
+                    $<TARGET_FILE:gasaccess_distributed_classifier_tests>
+                    ${MPIEXEC_POSTFLAGS}
+            )
+            set_tests_properties(
+                gasaccess_distributed_classifier_tests_${mpi_rank_count}_ranks
                 PROPERTIES
                     LABELS "mpi"
                     PROCESSORS ${mpi_rank_count}

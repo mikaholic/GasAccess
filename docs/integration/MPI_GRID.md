@@ -1,9 +1,11 @@
 # MPI grid and halo contract
 
-Phase 11 provides an optional C++ MPI layer in `GasAccess::gasaccess_mpi`. It
+Phases 11 and 12 provide an optional C++ MPI layer in
+`GasAccess::gasaccess_mpi`. It
 reuses the host application's Cartesian decomposition; it does not create or
-rebalance a second domain decomposition. Distributed flood-fill and
-incremental connectivity repair remain Phase 12 and Phase 13 work.
+rebalance a second domain decomposition. Distributed initial flood-fill is
+implemented; distributed incremental connectivity repair remains Phase 13
+work.
 
 ## Build
 
@@ -116,3 +118,34 @@ defensive even when the KMC bin setup already guarantees sufficient coverage.
 The atom input may contain already synchronized owned and ghost atoms;
 duplicate coverage is harmless because voxel solidification is idempotent.
 
+## Distributed initial classification
+
+`DistributedExteriorClassifier::classify()` treats owned `Solid` states as
+occupancy and recomputes all other owned states. It seeds free voxels on the
+configured non-periodic reservoir faces and any configured explicit source
+voxels. Fully periodic GasAccess domains therefore need at least one explicit
+source voxel when an exterior-connected component is desired.
+
+Each rank exhausts a local six-face breadth-first frontier. When traversal
+crosses an owned face, it sends only the tangential face offset to the owning
+neighbor; no global voxel IDs, gas graph, or full-grid state are gathered.
+Ranks exchange frontier counts and payloads, then use `MPI_Allreduce` only to
+decide whether any rank has newly received work. Ranks with no local frontier
+continue participating until global termination.
+
+The classifier returns local counts and traversal/communication diagnostics in
+`DistributedClassificationSummary`. Counts are local deliberately; an
+application may reduce them when it needs global reporting. After termination,
+the classifier calls `exchange_ghost_states()` so this sequence is sufficient:
+
+```cpp
+gasaccess::DistributedExteriorClassifier classifier;
+const auto summary = classifier.classify(distributed_grid);
+
+gasaccess::DistributedGasAccessibilityQuery query(distributed_grid);
+const bool accessible = query.is_site_accessible(atom_position);
+```
+
+`classify()` is collective over the decomposition communicator. Every rank in
+that communicator must call it in the same order. The subsequent position-based
+query remains local, allocation-free, and communication-free.

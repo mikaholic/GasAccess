@@ -1,6 +1,6 @@
 # GasAccess Development Plan
 
-Status: in development — Phase 11 complete
+Status: in development — Phase 12 complete
 Last updated: 2026-08-19
 
 This is the working plan for developing GasAccess as an independent C++/C
@@ -875,7 +875,7 @@ Before Phase 11:
 - [x] Phase 9: single-site KMC query contract
 - [x] Phase 10: serial scale and storage optimization
 - [x] Phase 11: anisotropic grid, decomposition adapter, and gas ghost exchange
-- [ ] Phase 12: distributed initial flood-fill
+- [x] Phase 12: distributed initial flood-fill
 - [ ] Phase 13: distributed incremental repair
 - [ ] Phase 14: KMC integration and production acceptance
 
@@ -1176,3 +1176,32 @@ Update this checklist only when a phase's tests and exit gate have passed.
   halo, atom coverage, and query-ordering contract in
   `docs/integration/MPI_GRID.md`. Distributed exterior classification remains
   Phase 12 work.
+
+#### Phase 12 completion — 2026-08-19
+
+- Added `DistributedExteriorClassifier`, which preserves owned solid occupancy,
+  resets every owned free voxel, seeds configured global reservoir faces and
+  explicit source voxels, and performs six-face distributed exterior
+  classification.
+- Added reusable local BFS storage and compact face-frontier buffers. Messages
+  contain only tangential offsets on the receiving face; the implementation
+  never gathers or replicates the global gas grid.
+- Added count/payload point-to-point exchange with periodic self-neighbor
+  handling and an `MPI_Allreduce` used only for global frontier termination.
+  Ranks without active local work remain in the collective protocol until all
+  ranks are idle.
+- Added `DistributedClassificationSummary` with local state counts, visited
+  voxel count, communication rounds, and sent/received frontier-entry counts.
+- Added final face-halo synchronization inside `classify()` so the existing
+  `query.is_site_accessible(atom_position)` contract is immediately valid when
+  classification returns.
+- Added differential MPI tests against the serial `ExteriorClassifier` and
+  serial query for one, two, and four ranks. The fixtures cover x/y/z and 2x2
+  decompositions, non-cubic spacing, top-face sources, no-source termination,
+  sealed and open barriers, fully periodic explicit-source traversal,
+  deterministic obstacles, periodic seams, inactive ranks, state summaries,
+  final ghost states, and query results.
+- Passed all 21 registered serial, reference-driver, and MPI tests, including
+  the new classifier suite on one, two, and four ranks, with strict GCC warnings
+  treated as errors. A two-rank Valgrind run using OpenMPI's TCP/self transport
+  completed with no GasAccess invalid-memory errors.

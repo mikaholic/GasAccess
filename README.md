@@ -4,9 +4,9 @@ GasAccess is a C++17 library for geometric gas-accessibility analysis on a
 Cartesian voxel grid. Development follows the recorded phased plan in
 [`docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md`](docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md).
 
-The current implementation is complete through Phase 11: the serial
+The current implementation is complete through Phase 12: the serial
 geometry/connectivity/update/query baseline, scale optimization, non-cubic
-voxel support, and the first optional MPI ownership and gas-state halo layer.
+voxel support, and distributed initial exterior classification.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -40,7 +40,11 @@ voxel support, and the first optional MPI ownership and gas-state halo layer.
 - one layer of face-connected gas ghost states with reusable communication
   buffers;
 - local-only distributed site queries after gas-state halo exchange;
-- defensive atom-ghost-distance validation.
+- defensive atom-ghost-distance validation;
+- distributed six-face flood-fill using local breadth-first traversal and
+  compact face-frontier messages;
+- global termination detection without gathering or replicating the gas grid;
+- final gas-state halo synchronization before cached site queries.
 
 The Phase 3 classifier is the correctness-reference implementation that later
 incremental update algorithms are tested against. The focused KMC query
@@ -73,7 +77,8 @@ Leave `GASACCESS_ENABLE_MPI` off, its default, for a serial-only build.
 
 With MPI enabled this produces `build/libgasaccess.a`,
 `build/libgasaccess_mpi.a`, the standalone reference driver, the nine serial
-test executables, and `build/gasaccess_mpi_grid_tests`.
+test executables, `build/gasaccess_mpi_grid_tests`, and
+`build/gasaccess_distributed_classifier_tests`.
 
 - `build/gasaccess_grid_tests`
 - `build/gasaccess_atom_voxelizer_tests`
