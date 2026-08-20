@@ -603,6 +603,8 @@ DistributedGasGrid::DistributedGasGrid(
     states_.assign(
         static_cast<std::size_t>(storage_count),
         GasState::Unclassified);
+    owned_state_counts_[gas_state_index(GasState::Unclassified)] =
+        owned_voxel_count_;
 
     for (std::size_t index = 0; index < send_buffers_.size(); ++index) {
         const auto count = face_element_count(static_cast<Face>(index));
@@ -704,6 +706,15 @@ GasState DistributedGasGrid::gas_state(
     return states_[state_index(*coordinate)];
 }
 
+std::uint64_t DistributedGasGrid::owned_gas_state_count(
+    GasState gas_state_value) const
+{
+    if (!is_valid_gas_state(gas_state_value)) {
+        throw std::invalid_argument("invalid gas state value");
+    }
+    return owned_state_counts_[gas_state_index(gas_state_value)];
+}
+
 void DistributedGasGrid::set_owned_gas_state(
     const VoxelCoord& global_voxel_coord,
     GasState gas_state_value)
@@ -715,7 +726,14 @@ void DistributedGasGrid::set_owned_gas_state(
         throw std::out_of_range("cannot set a gas state for a non-owned voxel");
     }
     const auto coordinate = local_coord(global_voxel_coord);
-    states_[state_index(*coordinate)] = gas_state_value;
+    const auto index = state_index(*coordinate);
+    const auto previous_state = states_[index];
+    if (previous_state == gas_state_value) {
+        return;
+    }
+    --owned_state_counts_[gas_state_index(previous_state)];
+    ++owned_state_counts_[gas_state_index(gas_state_value)];
+    states_[index] = gas_state_value;
 }
 
 void DistributedGasGrid::fill_owned_gas_state(GasState gas_state_value)
@@ -723,6 +741,8 @@ void DistributedGasGrid::fill_owned_gas_state(GasState gas_state_value)
     if (!is_valid_gas_state(gas_state_value)) {
         throw std::invalid_argument("invalid gas state value");
     }
+    owned_state_counts_.fill(0);
+    owned_state_counts_[gas_state_index(gas_state_value)] = owned_voxel_count_;
     const auto& dimensions = owned_range().dimensions;
     for (std::uint64_t z = 1; z <= dimensions.z; ++z) {
         for (std::uint64_t y = 1; y <= dimensions.y; ++y) {
@@ -736,6 +756,25 @@ void DistributedGasGrid::fill_owned_gas_state(GasState gas_state_value)
 std::uint64_t DistributedGasGrid::voxelize_owned_atoms(
     AtomView atom_view,
     double precursor_radius)
+{
+    return voxelize_owned_atoms_impl(atom_view, precursor_radius, nullptr);
+}
+
+std::uint64_t DistributedGasGrid::voxelize_owned_atoms(
+    AtomView atom_view,
+    double precursor_radius,
+    std::vector<DistributedRemovedVoxel>& removed_voxels)
+{
+    return voxelize_owned_atoms_impl(
+        atom_view,
+        precursor_radius,
+        &removed_voxels);
+}
+
+std::uint64_t DistributedGasGrid::voxelize_owned_atoms_impl(
+    AtomView atom_view,
+    double precursor_radius,
+    std::vector<DistributedRemovedVoxel>* removed_voxels)
 {
     if (atom_view.count != 0 && atom_view.atoms == nullptr) {
         throw std::invalid_argument("atom view has a null pointer with nonzero count");
@@ -767,6 +806,10 @@ std::uint64_t DistributedGasGrid::voxelize_owned_atoms(
             throw std::invalid_argument(
                 "atom excluded radius exceeds the declared maximum");
         }
+    }
+
+    if (removed_voxels != nullptr) {
+        removed_voxels->clear();
     }
 
     const Point3 lengths{
@@ -889,6 +932,11 @@ std::uint64_t DistributedGasGrid::voxelize_owned_atoms(
                         continue;
                     }
                     if (gas_state(coordinate) != GasState::Solid) {
+                        if (removed_voxels != nullptr) {
+                            removed_voxels->push_back({
+                                coordinate,
+                                gas_state(coordinate)});
+                        }
                         set_owned_gas_state(coordinate, GasState::Solid);
                         ++newly_solid_count;
                     }
@@ -1025,6 +1073,11 @@ Face DistributedGasGrid::opposite_face(Face face) noexcept
         return Face::ZLow;
     }
     return Face::XLow;
+}
+
+std::size_t DistributedGasGrid::gas_state_index(GasState gas_state) noexcept
+{
+    return static_cast<std::size_t>(gas_state);
 }
 
 std::optional<DistributedGasGrid::LocalCoord> DistributedGasGrid::local_coord(

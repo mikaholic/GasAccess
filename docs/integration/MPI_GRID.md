@@ -1,11 +1,10 @@
 # MPI grid and halo contract
 
-Phases 11 and 12 provide an optional C++ MPI layer in
+Phases 11 through 13 provide an optional C++ MPI layer in
 `GasAccess::gasaccess_mpi`. It
 reuses the host application's Cartesian decomposition; it does not create or
-rebalance a second domain decomposition. Distributed initial flood-fill is
-implemented; distributed incremental connectivity repair remains Phase 13
-work.
+rebalance a second domain decomposition. Both distributed initial flood-fill
+and monotonic-deposition connectivity repair are implemented.
 
 ## Build
 
@@ -149,3 +148,58 @@ const bool accessible = query.is_site_accessible(atom_position);
 `classify()` is collective over the decomposition communicator. Every rank in
 that communicator must call it in the same order. The subsequent position-based
 query remains local, allocation-free, and communication-free.
+
+## Distributed incremental deposition update
+
+`DistributedDepositionUpdater::apply_deposition()` is the production update
+path for monotonic gas-to-solid changes. The caller supplies deposited atoms
+after the normal KMC owned/ghost synchronization:
+
+```cpp
+gasaccess::DistributedDepositionUpdater updater(precursor_radius);
+
+const auto result = updater.apply_deposition(
+    distributed_grid,
+    {deposited_atoms, deposited_atom_count});
+```
+
+Every rank in the grid communicator must call the updater in the same order,
+including ranks whose local atom view produces no newly solid owned voxel. The
+updater performs these steps:
+
+1. Solidify owned voxels and retain their previous classified states.
+2. Reduce the global changed and previously accessible voxel counts.
+3. Skip connectivity work when only existing closed-void gas was removed.
+4. For a single accessible removal, attempt a fixed `3x3x3` local proof.
+5. Escalate multi-voxel changes and unprovable rank-boundary cases to
+   distributed affected-component repair.
+6. Synchronize final face ghosts before returning.
+
+The local proof uses only owned data for its `3x3x3` traversal. Zero- and
+one-neighbor cases are still provably safe using face ghosts. When a larger
+proof would need an unavailable edge or corner ghost, the updater conservatively
+repairs instead of declaring the event safe.
+
+Repair synchronizes only the small removed-voxel metadata list, then explores
+stale `OutsideAccessible` components from surviving neighbors. Traversal uses
+compact tangential face offsets and termination/source reductions. Components
+that reach a configured source stay accessible; exhausted components are
+relabelled `ClosedVoid` on their owning ranks. No full gas grid is gathered.
+
+`DistributedDepositionUpdateResult::changed_owned_voxel_coords` contains local
+owned coordinates whose state changed. It is diagnostic; the KMC integration
+does not need atom registration or selective propensity invalidation. After the
+update, KMC continues to call only:
+
+```cpp
+const bool accessible = query.is_site_accessible(atom_position);
+```
+
+For debugging, construct the updater with
+`ConnectivityRepairMode::FullReclassification`. Every geometry-changing call
+then uses the Phase 12 classifier and reports all changed owned coordinates.
+
+The incremental path is valid only when occupancy changes monotonically from
+gas to solid. If MD relaxation moves atoms or makes solid voxels free again,
+rebuild owned occupancy from the synchronized current structure and run full
+distributed classification.

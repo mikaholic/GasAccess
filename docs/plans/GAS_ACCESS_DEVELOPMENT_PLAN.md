@@ -1,6 +1,6 @@
 # GasAccess Development Plan
 
-Status: in development — Phase 12 complete
+Status: in development — Phase 13 complete
 Last updated: 2026-08-19
 
 This is the working plan for developing GasAccess as an independent C++/C
@@ -876,7 +876,7 @@ Before Phase 11:
 - [x] Phase 10: serial scale and storage optimization
 - [x] Phase 11: anisotropic grid, decomposition adapter, and gas ghost exchange
 - [x] Phase 12: distributed initial flood-fill
-- [ ] Phase 13: distributed incremental repair
+- [x] Phase 13: distributed incremental repair
 - [ ] Phase 14: KMC integration and production acceptance
 
 Update this checklist only when a phase's tests and exit gate have passed.
@@ -1205,3 +1205,40 @@ Update this checklist only when a phase's tests and exit gate have passed.
   the new classifier suite on one, two, and four ranks, with strict GCC warnings
   treated as errors. A two-rank Valgrind run using OpenMPI's TCP/self transport
   completed with no GasAccess invalid-memory errors.
+
+#### Phase 13 completion — 2026-08-19
+
+- Added `DistributedDepositionUpdater` with the same affected-region versus
+  forced-full mode selection as the serial updater. Calls are collective, while
+  the existing position-based KMC query remains communication-free.
+- Extended `DistributedGasGrid` with incrementally maintained owned-state
+  counts and change-capturing owned atom voxelization. This avoids a local
+  full-grid validation/count scan during ordinary incremental events.
+- Added a conservative fixed-capacity local topology proof for one globally
+  removed accessible voxel. Zero/one-neighbor deletions remain constant-cost;
+  larger proofs at rank boundaries escalate when edge/corner ghost data would
+  be required.
+- Added the safe fast paths for no geometry change and removal entirely from an
+  existing closed void. Multi-voxel removals involving accessible gas
+  conservatively invoke distributed repair.
+- Added rare-path synchronization of only removed-voxel coordinates and prior
+  states. No global gas-state field or gas graph is gathered.
+- Added distributed affected-component searches with reusable epoch arrays,
+  local BFS storage, compact tangential face offsets, periodic self-neighbor
+  handling, source/termination reductions, and owned relabelling of newly
+  closed components.
+- Added local changed-coordinate diagnostics and traversal/communication
+  metrics. Final face ghosts are synchronized on every geometry-changing
+  incremental path.
+- Added forced Phase 12 reclassification as a distributed debug/reference mode
+  with exact changed-owned-coordinate comparison.
+- Added one-, two-, and four-rank differential tests that maintain incremental,
+  forced-full, and serial grids together. Coverage includes no-change and
+  closed-void fast paths, proven-safe local removal, local and rank-boundary
+  pinch-offs, periodic-seam closure, multi-voxel closure, spanning cavities,
+  final ghosts/queries/counts, and a deterministically shuffled 64-event
+  deposition sequence.
+- Passed all 24 registered serial, reference-driver, and MPI tests with strict
+  GCC warnings treated as errors. A two-rank Valgrind run of the complete
+  distributed updater suite using OpenMPI's TCP/self transport completed with
+  no GasAccess invalid-memory errors.

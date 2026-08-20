@@ -4,9 +4,10 @@ GasAccess is a C++17 library for geometric gas-accessibility analysis on a
 Cartesian voxel grid. Development follows the recorded phased plan in
 [`docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md`](docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md).
 
-The current implementation is complete through Phase 12: the serial
+The current implementation is complete through Phase 13: the serial
 geometry/connectivity/update/query baseline, scale optimization, non-cubic
-voxel support, and distributed initial exterior classification.
+voxel support, distributed initial classification, and distributed incremental
+repair for monotonic deposition.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -44,7 +45,12 @@ voxel support, and distributed initial exterior classification.
 - distributed six-face flood-fill using local breadth-first traversal and
   compact face-frontier messages;
 - global termination detection without gathering or replicating the gas grid;
-- final gas-state halo synchronization before cached site queries.
+- final gas-state halo synchronization before cached site queries;
+- distributed change-capturing atom voxelization with owned state counters;
+- conservative constant-size topology filtering with rank-boundary escalation;
+- affected-component MPI repair using compact face-frontier messages;
+- forced distributed full reclassification for debugging and differential
+  validation.
 
 The Phase 3 classifier is the correctness-reference implementation that later
 incremental update algorithms are tested against. The focused KMC query
@@ -77,8 +83,9 @@ Leave `GASACCESS_ENABLE_MPI` off, its default, for a serial-only build.
 
 With MPI enabled this produces `build/libgasaccess.a`,
 `build/libgasaccess_mpi.a`, the standalone reference driver, the nine serial
-test executables, `build/gasaccess_mpi_grid_tests`, and
-`build/gasaccess_distributed_classifier_tests`.
+test executables, `build/gasaccess_mpi_grid_tests`,
+`build/gasaccess_distributed_classifier_tests`, and
+`build/gasaccess_distributed_updater_tests`.
 
 - `build/gasaccess_grid_tests`
 - `build/gasaccess_atom_voxelizer_tests`

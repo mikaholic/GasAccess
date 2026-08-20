@@ -59,6 +59,13 @@ enum class Face : std::uint8_t {
     ZHigh = 5
 };
 
+// Records an owned gas voxel removed by solidification and its state
+// immediately before the occupancy change.
+struct DistributedRemovedVoxel {
+    VoxelCoord voxel_coord{};
+    GasState previous_state = GasState::Unclassified;
+};
+
 class MpiDecomposition {
 public:
     MpiDecomposition(
@@ -101,6 +108,7 @@ public:
     Point3 voxel_center(const VoxelCoord& global_voxel_coord) const;
 
     GasState gas_state(const VoxelCoord& global_voxel_coord) const;
+    std::uint64_t owned_gas_state_count(GasState gas_state) const;
     void set_owned_gas_state(
         const VoxelCoord& global_voxel_coord,
         GasState gas_state);
@@ -109,6 +117,10 @@ public:
     std::uint64_t voxelize_owned_atoms(
         AtomView atom_view,
         double precursor_radius);
+    std::uint64_t voxelize_owned_atoms(
+        AtomView atom_view,
+        double precursor_radius,
+        std::vector<DistributedRemovedVoxel>& removed_voxels);
     void exchange_ghost_states();
     bool is_site_accessible(const Point3& site_position) const;
 
@@ -121,6 +133,7 @@ private:
 
     static std::size_t face_index(Face face) noexcept;
     static Face opposite_face(Face face) noexcept;
+    static std::size_t gas_state_index(GasState gas_state) noexcept;
 
     std::optional<LocalCoord> local_coord(
         const VoxelCoord& global_voxel_coord) const noexcept;
@@ -131,12 +144,17 @@ private:
     void pack_face(Face face);
     void unpack_face(Face face);
     void fill_ghost_face(Face face, GasState gas_state);
+    std::uint64_t voxelize_owned_atoms_impl(
+        AtomView atom_view,
+        double precursor_radius,
+        std::vector<DistributedRemovedVoxel>* removed_voxels);
 
     GridSpec global_grid_spec_{};
     MpiDecomposition decomposition_;
     GridDimensions storage_dimensions_{};
     std::uint64_t owned_voxel_count_ = 0;
     std::vector<GasState> states_{};
+    std::array<std::uint64_t, 4> owned_state_counts_{};
     std::array<std::vector<GasState>, 6> send_buffers_{};
     std::array<std::vector<GasState>, 6> receive_buffers_{};
 };
