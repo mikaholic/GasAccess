@@ -44,6 +44,9 @@ elseif(MSVC)
 endif()
 
 option(GASACCESS_ENABLE_MPI "Build the optional MPI gas-grid layer" OFF)
+set(GASACCESS_SPPARKS_SOURCE_DIR "" CACHE PATH
+    "Optional SPPARKS src directory used for adapter compatibility compilation"
+)
 
 if(GASACCESS_ENABLE_MPI)
     find_package(MPI REQUIRED COMPONENTS CXX)
@@ -81,6 +84,46 @@ if(GASACCESS_ENABLE_MPI)
         )
     elseif(MSVC)
         target_compile_options(gasaccess_mpi PRIVATE /W4)
+    endif()
+
+    add_library(gasaccess_mock_spparks STATIC
+        tools/mock_spparks.cpp
+        tools/mock_spparks_fixture.cpp
+    )
+    target_compile_features(gasaccess_mock_spparks PUBLIC cxx_std_17)
+    target_include_directories(gasaccess_mock_spparks
+        PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools
+    )
+    target_link_libraries(gasaccess_mock_spparks
+        PUBLIC GasAccess::gasaccess_mpi
+    )
+    set_target_properties(gasaccess_mock_spparks PROPERTIES CXX_EXTENSIONS OFF)
+
+    add_executable(gasaccess_spparks_mock_driver
+        tools/spparks_mock_driver.cpp
+    )
+    target_link_libraries(gasaccess_spparks_mock_driver
+        PRIVATE gasaccess_mock_spparks
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_mock_spparks PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+        target_compile_options(gasaccess_spparks_mock_driver PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_mock_spparks PRIVATE /W4)
+        target_compile_options(gasaccess_spparks_mock_driver PRIVATE /W4)
     endif()
 endif()
 
@@ -358,6 +401,101 @@ if(BUILD_TESTING)
                     TIMEOUT 60
             )
         endforeach()
+
+        add_executable(gasaccess_spparks_mock_integration_tests
+            tests/test_spparks_mock_integration.cpp
+        )
+        target_link_libraries(gasaccess_spparks_mock_integration_tests
+            PRIVATE gasaccess_mock_spparks
+        )
+
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(gasaccess_spparks_mock_integration_tests PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+            )
+        elseif(MSVC)
+            target_compile_options(gasaccess_spparks_mock_integration_tests
+                PRIVATE /W4
+            )
+        endif()
+
+        foreach(mpi_rank_count IN ITEMS 1 2 4)
+            add_test(
+                NAME gasaccess_spparks_mock_tests_${mpi_rank_count}_ranks
+                COMMAND
+                    ${MPIEXEC_EXECUTABLE}
+                    ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                    ${MPIEXEC_PREFLAGS}
+                    $<TARGET_FILE:gasaccess_spparks_mock_integration_tests>
+                    ${MPIEXEC_POSTFLAGS}
+            )
+            set_tests_properties(
+                gasaccess_spparks_mock_tests_${mpi_rank_count}_ranks
+                PROPERTIES
+                    LABELS "mpi;spparks"
+                    PROCESSORS ${mpi_rank_count}
+                    TIMEOUT 120
+            )
+        endforeach()
+
+        foreach(mpi_rank_count IN ITEMS 1 2 4)
+            add_test(
+                NAME gasaccess_spparks_million_${mpi_rank_count}_ranks
+                COMMAND
+                    ${MPIEXEC_EXECUTABLE}
+                    ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                    ${MPIEXEC_PREFLAGS}
+                    $<TARGET_FILE:gasaccess_spparks_mock_driver>
+                    --scenario million-slab
+                    ${MPIEXEC_POSTFLAGS}
+            )
+            set_tests_properties(
+                gasaccess_spparks_million_${mpi_rank_count}_ranks
+                PROPERTIES
+                    LABELS "benchmark;spparks"
+                    PROCESSORS ${mpi_rank_count}
+                    TIMEOUT 180
+                    PASS_REGULAR_EXPRESSION "acceptance=pass"
+            )
+        endforeach()
+
+        if(GASACCESS_SPPARKS_SOURCE_DIR
+           AND EXISTS "${GASACCESS_SPPARKS_SOURCE_DIR}/domain.h"
+           AND EXISTS "${GASACCESS_SPPARKS_SOURCE_DIR}/app.h")
+            add_executable(gasaccess_spparks_header_compatibility
+                tests/test_spparks_header_compatibility.cpp
+            )
+            target_include_directories(gasaccess_spparks_header_compatibility
+                SYSTEM PRIVATE ${GASACCESS_SPPARKS_SOURCE_DIR}
+            )
+            target_link_libraries(gasaccess_spparks_header_compatibility
+                PRIVATE GasAccess::gasaccess_mpi
+            )
+            if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+                target_compile_options(gasaccess_spparks_header_compatibility PRIVATE
+                    -Wall
+                    -Wextra
+                    -Wpedantic
+                    -Wconversion
+                    -Wsign-conversion
+                )
+            elseif(MSVC)
+                target_compile_options(gasaccess_spparks_header_compatibility
+                    PRIVATE /W4
+                )
+            endif()
+            add_test(
+                NAME gasaccess_spparks_header_compatibility
+                COMMAND gasaccess_spparks_header_compatibility
+            )
+            set_tests_properties(gasaccess_spparks_header_compatibility
+                PROPERTIES LABELS "spparks"
+            )
+        endif()
 
         add_executable(gasaccess_distributed_updater_tests
             tests/test_distributed_deposition_updater.cpp

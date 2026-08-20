@@ -4,7 +4,9 @@ Phases 11 through 13 provide an optional C++ MPI layer in
 `GasAccess::gasaccess_mpi`. It
 reuses the host application's Cartesian decomposition; it does not create or
 rebalance a second domain decomposition. Both distributed initial flood-fill
-and monotonic-deposition connectivity repair are implemented.
+and monotonic-deposition connectivity repair are implemented. Phase 14 adds
+the SPPARKS field adapter and static acceptance application documented in
+[`SPPARKS_STATIC_INTEGRATION.md`](SPPARKS_STATIC_INTEGRATION.md).
 
 ## Build
 
@@ -35,7 +37,8 @@ physical coordinates and uses an ordinary Euclidean distance test.
 
 ## SPPARKS adapter fields
 
-The application constructs `MpiDecompositionSpec` from existing SPPARKS data:
+`make_spparks_decomposition_spec()` constructs `MpiDecompositionSpec` from
+existing SPPARKS data:
 
 | GasAccess field | SPPARKS source |
 |---|---|

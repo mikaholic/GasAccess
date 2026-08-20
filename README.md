@@ -4,10 +4,11 @@ GasAccess is a C++17 library for geometric gas-accessibility analysis on a
 Cartesian voxel grid. Development follows the recorded phased plan in
 [`docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md`](docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md).
 
-The current implementation is complete through Phase 13: the serial
+The current standalone implementation is complete through Phase 14: the serial
 geometry/connectivity/update/query baseline, scale optimization, non-cubic
 voxel support, distributed initial classification, and distributed incremental
-repair for monotonic deposition.
+repair for monotonic deposition, plus a SPPARKS-compatible adapter and static
+MPI acceptance application.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -50,7 +51,12 @@ repair for monotonic deposition.
 - conservative constant-size topology filtering with rank-boundary escalation;
 - affected-component MPI repair using compact face-frontier messages;
 - forced distributed full reclassification for debugging and differential
-  validation.
+  validation;
+- templated mapping from the public SPPARKS `Domain` and `App` field contracts;
+- independent SPPARKS physical and GasAccess reservoir-boundary settings;
+- a neighbor-directed mock SPPARKS atom halo, with no global atom gather;
+- static open/sealed trench acceptance and a million-atom MPI benchmark;
+- optional direct compile checking against an available SPPARKS source tree.
 
 The Phase 3 classifier is the correctness-reference implementation that later
 incremental update algorithms are tested against. The focused KMC query
@@ -75,17 +81,22 @@ Configure and compile an optimized build:
 cmake -S . -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=ON \
-    -DGASACCESS_ENABLE_MPI=ON
+    -DGASACCESS_ENABLE_MPI=ON \
+    -DGASACCESS_SPPARKS_SOURCE_DIR=/home/mikaholic/project/spparks/src
 cmake --build build --parallel
 ```
 
 Leave `GASACCESS_ENABLE_MPI` off, its default, for a serial-only build.
+`GASACCESS_SPPARKS_SOURCE_DIR` is optional; when provided, an adapter target is
+compiled against the real SPPARKS base-class headers without linking SPPARKS.
 
 With MPI enabled this produces `build/libgasaccess.a`,
 `build/libgasaccess_mpi.a`, the standalone reference driver, the nine serial
 test executables, `build/gasaccess_mpi_grid_tests`,
 `build/gasaccess_distributed_classifier_tests`, and
-`build/gasaccess_distributed_updater_tests`.
+`build/gasaccess_distributed_updater_tests`. Phase 14 also produces
+`build/gasaccess_spparks_mock_driver` and
+`build/gasaccess_spparks_mock_integration_tests`.
 
 - `build/gasaccess_grid_tests`
 - `build/gasaccess_atom_voxelizer_tests`
@@ -126,6 +137,28 @@ ctest --test-dir build --output-on-failure -L mpi
 The MPI data contract, SPPARKS field mapping, boundary override, aligned-grid
 helper, and update/query ordering are documented in
 [`docs/integration/MPI_GRID.md`](docs/integration/MPI_GRID.md).
+The concrete adapter, mock application, and remaining production handoff are
+documented in
+[`docs/integration/SPPARKS_STATIC_INTEGRATION.md`](docs/integration/SPPARKS_STATIC_INTEGRATION.md).
+
+## SPPARKS-style static acceptance
+
+Run the open trench, sealed trench, and million-atom slab through the same
+owned/ghost atom, distributed voxelization, flood-fill, and site-query sequence
+that the real application will use:
+
+```sh
+mpiexec -n 1 ./build/gasaccess_spparks_mock_driver --scenario open-trench
+mpiexec -n 4 ./build/gasaccess_spparks_mock_driver --scenario sealed-trench
+mpiexec -n 4 ./build/gasaccess_spparks_mock_driver --scenario million-slab
+```
+
+The driver does not invoke deposition or a KMC event. It adds a static atom
+structure, synchronizes mock SPPARKS-style ghosts, constructs and classifies
+the gas grid, then calls
+`query.is_site_accessible(atom_position)` for each owned atom. Phase 14 timing
+results are recorded in
+[`docs/benchmarks/PHASE14_SPPARKS_MOCK.md`](docs/benchmarks/PHASE14_SPPARKS_MOCK.md).
 
 ## Reference driver
 

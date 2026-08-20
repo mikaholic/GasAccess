@@ -1,6 +1,7 @@
 # GasAccess Development Plan
 
-Status: in development — Phase 13 complete
+Status: standalone development complete — Phase 14 mock acceptance complete;
+real KMC hookup awaits the production application source
 Last updated: 2026-08-19
 
 This is the working plan for developing GasAccess as an independent C++/C
@@ -695,45 +696,62 @@ Exit gate:
 
 Expected production code: 450-750 lines.
 
-#### Phase 14: KMC integration and production acceptance
+#### Phase 14: SPPARKS-compatible integration and mock acceptance
 
 Scope:
 
-- Adapt the real atom, deposition, and SPPARKS `Domain` interfaces into the
-  neutral GasAccess descriptors.
+- Adapt the public atom and SPPARKS `Domain` field contracts into the neutral
+  GasAccess descriptors without including SPPARKS headers in the core library.
+- Compile the adapter against the available real SPPARKS `Domain` and `App`
+  headers. Because the production KMC application is not present on this
+  machine, use SPPARKS-compatible mock objects for runtime acceptance.
 - Supply the effective GasAccess periodic axes and reservoir faces independently
   from the SPPARKS boundary flags; the expected production configuration is
   periodic x/y, non-periodic z, with the top-z face connected to the reservoir.
-- Build/initialize the grid from the KMC structure.
-- Schedule work as: synchronize SPPARKS atoms, update gas occupancy and
-  connectivity, exchange gas-state halos, then enter the KMC site loop.
-- Use only `query.is_site_accessible(atom_position)` while KMC iterates sites;
-  KMC retains responsibility for its normal full rate/event recalculation.
-- Use the incremental deposition updater only for monotonic gas-to-solid
-  changes. If MD relaxation can unblock or move occupancy between voxels,
-  rebuild occupancy from the synchronized current atoms and run distributed
-  reclassification as the correctness baseline.
-- Run the supplied million-atom structure and representative event sequence.
-- Measure strong scaling, communication volume, update latency, query throughput,
-  and end-to-end KMC overhead.
+- Provide a mock SPPARKS Cartesian domain with x-fastest rank numbering,
+  `[sublo, subhi)` ownership, `procgrid`, `myloc`, `procneigh`, and independent
+  per-axis periodicity.
+- Provide mock owned/ghost atom arrays with the real `App::nlocal`, `nghost`,
+  and `xyz` access pattern. Exchange only atoms needed by spatial neighbor
+  ranks; do not globally gather the atom structure.
+- Build/initialize the grid from static open-trench, sealed-trench, and
+  million-atom structures. Do not invoke KMC deposition or event logic.
+- Schedule work as: synchronize mock SPPARKS atoms, build owned gas occupancy,
+  classify connectivity, exchange gas-state halos, then iterate owned sites.
+- Use only `query.is_site_accessible(atom_position)` in that site loop.
+- Measure per-stage and end-to-end elapsed time, query throughput, MPI frontier
+  volume, and peak RSS for the million-atom structure on one, two, and four
+  ranks.
+- Document the two real-application-specific handoff points that cannot be
+  completed without the production source: existing ghost synchronization and
+  the application atom-radius accessor.
 
 Tests:
 
-- A mock KMC integration test precedes changes to the real simulator.
-- Integrated results match the standalone library on the same geometry/events.
+- Runtime mock integration results match the serial standalone library on the
+  same geometry.
+- Open trench interior probes are accessible; sealed trench interior probes
+  are inaccessible.
+- Results match across x-, y-, z-, and 2x2 process decompositions on one, two,
+  and four MPI ranks, including owned and face-ghost voxel states.
 - Normal site queries perform no collectives and require only local/ghost state.
 - Atom ghost cutoff validation is exercised against the maximum excluded
   radius used by the integration.
-- MD-relaxed geometries match a clean rebuild from the same current atoms.
-- Debug full recomputation periodically checks incremental state during long runs.
+- The adapter compiles directly against the available real SPPARKS base-class
+  headers.
+- The 1,048,576-atom static slab returns the exact accepted exposure count on
+  one, two, and four ranks.
 
 Exit gate:
 
-- Physical results are accepted and measured performance meets targets agreed
-  from Phase 10 and the KMC baseline.
+- All serial/MPI regression and new mock-integration tests pass.
+- Static open/sealed physics and million-atom results are deterministic and
+  timing/memory measurements are recorded.
+- The remaining real-KMC handoff is isolated and documented rather than guessed
+  in the absence of the production application source.
 
-Code size depends on the KMC interfaces and will be estimated after those
-interfaces are reviewed.
+The runtime mock is test/support code; production library additions remain a
+small header-only adapter.
 
 ## 5. Testing strategy retained throughout development
 
@@ -850,16 +868,19 @@ Before Phase 11:
   enforce this condition.
 - Confirmed: the KMC integration requires only the position-based accessibility
   query and does not need selective invalidation.
-- Still required during integration: provide the requested nominal voxel
-  resolution; the alignment helper will derive divisible dimensions and report
-  the resulting per-axis spacing.
-- Still required during integration: expose the minimum off-lattice bin/ghost
-  distance and maximum `R_atom + R_precursor` to the defensive validator.
-- Still required during integration: confirm whether the bottom-z GasAccess
-  face remains closed/non-source; the current planned default is top-z source
-  only.
+- Phase 14 mock setting: nominal spacing is 1.0 on each axis; the same alignment
+  helper derives exact per-axis spacing for arbitrary production bounds and
+  process grids.
+- Phase 14 mock setting: ghost distance is 1.0 and maximum excluded radius is
+  0.5; the defensive validator also has an explicit rejection test at 0.49.
+- Phase 14 mock setting: the bottom-z GasAccess face is closed/non-source and
+  the top-z face is the only reservoir. The real call remains caller-configured.
 - Confirmed: OpenMPI 4.1.1 is available through `mpicxx` and `mpiexec`; CMake
   discovers MPI when `GASACCESS_ENABLE_MPI=ON`.
+- Confirmed in Phase 14: the generic adapter compiles against the available
+  real SPPARKS `Domain` and `App` headers. The actual KMC application is absent,
+  so its radius accessor and existing ghost-synchronization call remain the
+  explicit production handoff.
 
 ## 9. Progress record
 
@@ -877,7 +898,7 @@ Before Phase 11:
 - [x] Phase 11: anisotropic grid, decomposition adapter, and gas ghost exchange
 - [x] Phase 12: distributed initial flood-fill
 - [x] Phase 13: distributed incremental repair
-- [ ] Phase 14: KMC integration and production acceptance
+- [x] Phase 14: SPPARKS-compatible integration and mock acceptance
 
 Update this checklist only when a phase's tests and exit gate have passed.
 
@@ -1242,3 +1263,44 @@ Update this checklist only when a phase's tests and exit gate have passed.
   GCC warnings treated as errors. A two-rank Valgrind run of the complete
   distributed updater suite using OpenMPI's TCP/self transport completed with
   no GasAccess invalid-memory errors.
+
+#### Phase 14 completion — 2026-08-19
+
+- Added a header-only SPPARKS adapter that maps the public 3D box/subdomain,
+  `procgrid`, `myloc`, `nlocal`, `nghost`, and `xyz` field contracts into
+  `GridSpec`, `MpiDecompositionSpec`, and reusable GasAccess atom storage.
+  Atom radius remains an application callback because the base SPPARKS `App`
+  class has no universal radius field.
+- Added an optional compile-only compatibility target against the available
+  real SPPARKS `Domain` and `App` headers. No SPPARKS implementation object or
+  runtime library is linked into GasAccess.
+- Added `MockSpparksDomain` with SPPARKS x-fastest rank ordering,
+  `[sublo, subhi)` ownership, process neighbors, global/local bounds, and
+  independent physical periodic axes.
+- Added `MockSpparksApp` with owned-first/ghost-second arrays and
+  neighbor-directed 26-direction atom-halo synchronization. Periodic seams are
+  supported and atom data are never globally gathered.
+- Added static open-trench and sealed-trench fixtures. The KMC-style owned-site
+  loop uses only `query.is_site_accessible(atom_position)`; all 32 selected
+  inner-wall probes are accessible before closure and inaccessible after the
+  cap seals the trench.
+- Added MPI differential tests against the serial voxelizer, classifier, and
+  query for x/y/z and 2x2 decompositions on one, two, and four ranks. They also
+  compare face ghosts, verify the independent all-periodic SPPARKS versus
+  top-open GasAccess configuration, and exercise the ghost-cutoff guard.
+- Added a deterministic 128 x 128 x 128 `million-slab` acceptance workload
+  containing 1,048,576 atoms. One, two, and four ranks all report exactly
+  16,384 accessible top-layer atoms.
+- Recorded release-build end-to-end times of 0.322, 0.167, and 0.094 seconds on
+  one, two, and four local ranks respectively, together with per-stage timing,
+  query throughput, frontier volume, and RSS. These are synthetic WSL2
+  single-machine measurements.
+- Passed all 31 registered serial, reference, MPI, mock integration,
+  million-atom, and real-header compatibility tests with strict GCC warnings
+  treated as errors. A one-rank sealed-trench Valgrind invalid-memory check
+  passed; full leak reporting contained only known process-lifetime allocations
+  rooted in this OpenMPI/OpenRTE build.
+- The production KMC application was not available on this machine. Its normal
+  atom ghost-synchronization invocation and atom-radius accessor are the only
+  application-specific handoff left; the adapter and runtime path are
+  documented without guessing those interfaces.
