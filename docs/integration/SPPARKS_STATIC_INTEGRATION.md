@@ -77,8 +77,9 @@ For a later geometry rebuild, repeat atom synchronization, clear/reconstruct
 owned occupancy from the current atoms, and classify again. Monotonic
 deposition can use `DistributedDepositionUpdater`; atom removal can use
 `DistributedDesorptionUpdater` with the removed atoms' old positions and
-radii. Atom moves and mixed addition/removal batches continue to use a full
-rebuild until the unified Phase R4 update is available.
+radii. The Phase R4 `DistributedAtomChangeUpdater` handles atom moves and
+mixed addition/removal batches atomically. Production tKMC event-buffer and C
+API integration remain Phase R5 work.
 
 ## Mock application
 

@@ -206,8 +206,8 @@ For debugging, construct the updater with
 then uses the Phase 12 classifier and reports all changed owned coordinates.
 
 This deposition entry point remains restricted to gas-to-solid changes. Use
-the desorption entry point below for atom removals; mixed additions/removals in
-one atomic batch remain planned for Phase R4.
+the desorption entry point below for atom removals, or the unified atom-change
+entry point for additions and removals in one atomic batch.
 
 ## Distributed incremental desorption update
 
@@ -255,3 +255,43 @@ The incremental and reference implementations are differentially tested on
 one, two, four, and eight ranks. The worst correctness fixture opens more than
 half the grid and propagates through every rank. Details are in
 [`../benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md`](../benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md).
+
+## Distributed atomic mixed update
+
+`DistributedAtomChangeUpdater::apply_atom_changes()` accepts additions and
+removals together:
+
+```cpp
+gasaccess::DistributedAtomChangeUpdater updater(precursor_radius);
+
+const auto result = updater.apply_atom_changes(
+    distributed_grid,
+    {{added_atoms, added_atom_count},
+     {removed_atoms, removed_atom_count}});
+```
+
+Both atom views are aggregated before any blocker count is committed. A move
+is therefore represented as removal at the old position and addition at the
+new position without exposing an intermediate hole or blocker. If any rank
+rejects the batch, successful local commits are rolled back before all ranks
+receive an exception.
+
+After final occupancy is known, the updater performs distributed closing
+repair around newly solid voxels, then distributed opening repair from newly
+gas voxels. The ordering is intentional: the closing pass may conservatively
+close gas that is reachable only through a newly opened route, and the opening
+pass restores that route using the final solid mask.
+
+A preceding closing pass can make face-ghost labels stale. Rather than
+exchanging complete ghost faces between passes, newly gas boundary voxels send
+compact seed queries to neighboring owners. Neighbors acknowledge only those
+adjacencies whose post-closing owned state remains `OutsideAccessible`. Normal
+opening frontiers then propagate through `ClosedVoid` voxels. One full face
+ghost exchange occurs after both passes.
+
+`DistributedAtomChangeUpdateResult` reports the two occupancy directions and
+separate closing/opening traversal, rank-participation, communication-round,
+and frontier-entry metrics. `AtomChangeRepairMode::FullReclassification`
+selects the full distributed reference. Phase R4 differential tests cover one,
+two, four, and eight ranks; see
+[`../benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md`](../benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md).

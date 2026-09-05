@@ -30,11 +30,15 @@ public:
     // Collective over the grid communicator. Newly gas voxels must be owned,
     // unblocked ClosedVoid voxels. The repair promotes only components that
     // touch a reservoir source or the existing OutsideAccessible region.
-    // Face ghosts are deliberately not synchronized here so an updater can
-    // perform one final exchange after all state changes are complete.
+    // Set face_ghost_states_current false when a preceding closing pass may
+    // have changed remote boundary states. In that mode, compact boundary
+    // queries establish cross-rank seeds without a full ghost exchange. Face
+    // ghosts are deliberately not synchronized here so an updater can perform
+    // one final exchange after all state changes are complete.
     DistributedOpeningRegionRepairResult repair(
         DistributedGasGrid& gas_grid,
-        NewlyGasVoxelCoordView newly_gas_voxel_view);
+        NewlyGasVoxelCoordView newly_gas_voxel_view,
+        bool face_ghost_states_current = true);
 
 private:
     void prepare_workspace(const DistributedGasGrid& gas_grid);

@@ -1,6 +1,6 @@
 # Reversible Atom-Change Development Plan
 
-Status: Phases R1-R3 complete; Phases R4-R6 planned
+Status: Phases R1-R4 complete; Phases R5-R6 planned
 Last updated: 2026-09-05
 
 ## 1. Objective
@@ -330,6 +330,9 @@ traffic.
 
 ## 7. Phase R4 — Mixed deposition and desorption
 
+Status: complete (2026-09-05). Implementation and verification are recorded in
+[`../benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md`](../benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md).
+
 ### 7.1 Safe first implementation
 
 Expose mixed batches as soon as occupancy accounting is available, but route a
@@ -375,7 +378,7 @@ reference for MPI ranks 1, 2, 4, and 8.
 
 ### 8.1 Library interfaces
 
-- Add stable C++ `apply_atom_changes()` and `apply_desorption()` entry points.
+- Stabilize the C++ `apply_atom_changes()` and `apply_desorption()` entry points.
 - Keep `apply_deposition()` source-compatible as a wrapper.
 - Add equivalent C API batch descriptors, result fields, and lifecycle
   functions.

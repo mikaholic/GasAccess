@@ -7,7 +7,8 @@ Cartesian voxel grid. Development follows the recorded phased plan in
 The current implementation includes the original serial and distributed
 geometry/connectivity/query baseline, distributed incremental repair for
 monotonic deposition, and Phase R3 serial and distributed incremental
-desorption repair. Mixed-event accessibility repair remains planned work.
+desorption repair. Phase R4 adds atomic mixed deposition/desorption repair in
+both the serial and distributed C++ layers.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -37,6 +38,8 @@ desorption repair. Mixed-event accessibility repair remains planned work.
 - sorted changed-voxel reporting and post-update classification counts;
 - serial and distributed incremental opening repair after atom desorption,
   with overlap-safe occupancy and forced full-reclassification reference modes;
+- atomic mixed atom-change batches with incremental closing-then-opening
+  repair and one final MPI ghost-state synchronization;
 - an exception-safe C99 API with opaque grid and update-result handles;
 - deterministic open-trench, sealed-trench, and bulk workload generation;
 - machine-readable correctness checksums, timings, and memory reporting;
@@ -93,11 +96,12 @@ Leave `GASACCESS_ENABLE_MPI` off, its default, for a serial-only build.
 compiled against the real SPPARKS base-class headers without linking SPPARKS.
 
 With MPI enabled this produces `build/libgasaccess.a`,
-`build/libgasaccess_mpi.a`, the standalone reference driver, the ten serial
+`build/libgasaccess_mpi.a`, the standalone reference driver, the eleven serial
 test executables, `build/gasaccess_mpi_grid_tests`,
-`build/gasaccess_distributed_classifier_tests`, and
-`build/gasaccess_distributed_updater_tests`, and
-`build/gasaccess_distributed_desorption_tests`. Phase 14 also produces
+`build/gasaccess_distributed_classifier_tests`,
+`build/gasaccess_distributed_updater_tests`,
+`build/gasaccess_distributed_desorption_tests`, and
+`build/gasaccess_distributed_atom_change_tests`. Phase 14 also produces
 `build/gasaccess_spparks_mock_driver` and
 `build/gasaccess_spparks_mock_integration_tests`. The lifecycle efficiency
 matrix is provided by `build/gasaccess_mpi_efficiency_driver`.
@@ -110,6 +114,7 @@ matrix is provided by `build/gasaccess_mpi_efficiency_driver`.
 - `build/gasaccess_c_api_tests`
 - `build/gasaccess_deposition_updater_tests`
 - `build/gasaccess_desorption_updater_tests`
+- `build/gasaccess_atom_change_updater_tests`
 - `build/gasaccess_local_topology_filter_tests`
 - `build/gasaccess_affected_region_repair_tests`
 
@@ -130,6 +135,7 @@ To display every individual test-group result directly:
 ./build/gasaccess_c_api_tests
 ./build/gasaccess_deposition_updater_tests
 ./build/gasaccess_desorption_updater_tests
+./build/gasaccess_atom_change_updater_tests
 ./build/gasaccess_local_topology_filter_tests
 ./build/gasaccess_affected_region_repair_tests
 ```
@@ -190,6 +196,39 @@ crosses subdomains through compact face-frontier offsets, terminates with a
 global activity check, and synchronizes final face ghosts once. Phase R3's MPI
 contract and 1/2/4/8-rank correctness results are recorded in
 [`docs/benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md`](docs/benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md).
+
+## Atomic mixed atom changes
+
+Phase R4 accepts deposited and desorbed atoms in one transaction. Removed
+records use their old positions and radii; an atom move is represented by one
+old record and one new record in the same batch:
+
+```cpp
+gasaccess::AtomChangeUpdater updater(precursor_radius);
+const auto result = updater.apply_atom_changes(
+    gas_grid,
+    {{added_atoms, added_atom_count},
+     {removed_atoms, removed_atom_count}});
+```
+
+The MPI equivalent is collective:
+
+```cpp
+gasaccess::DistributedAtomChangeUpdater updater(precursor_radius);
+const auto result = updater.apply_atom_changes(
+    distributed_grid,
+    {{added_atoms, added_atom_count},
+     {removed_atoms, removed_atom_count}});
+```
+
+GasAccess aggregates both directions before committing blocker counts. It then
+runs closing repair for newly solid voxels followed by opening repair for newly
+gas voxels, so the final connectivity—not either temporary event ordering—is
+reported. Under MPI, compact boundary queries bridge the two passes without
+an intermediate full ghost exchange; final face ghosts are synchronized once.
+`AtomChangeRepairMode::FullReclassification` retains a debugging and
+differential-testing reference path. Details are recorded in
+[`docs/benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md`](docs/benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md).
 
 ## SPPARKS-style static acceptance
 

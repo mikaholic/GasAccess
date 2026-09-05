@@ -10,6 +10,7 @@ project(
 add_library(gasaccess
     src/accessibility_query.cpp
     src/affected_region_repair.cpp
+    src/atom_change_updater.cpp
     src/atom_voxelizer.cpp
     src/deposition_updater.cpp
     src/desorption_updater.cpp
@@ -57,6 +58,8 @@ if(GASACCESS_ENABLE_MPI)
     find_package(MPI REQUIRED COMPONENTS CXX)
 
     add_library(gasaccess_mpi
+        src/distributed_atom_change_updater.cpp
+        src/distributed_closing_region_repair.cpp
         src/distributed_desorption_updater.cpp
         src/distributed_deposition_updater.cpp
         src/distributed_exterior_classifier.cpp
@@ -362,6 +365,30 @@ if(BUILD_TESTING)
         COMMAND gasaccess_desorption_updater_tests
     )
 
+    add_executable(gasaccess_atom_change_updater_tests
+        tests/test_atom_change_updater.cpp
+    )
+    target_link_libraries(gasaccess_atom_change_updater_tests
+        PRIVATE GasAccess::gasaccess
+    )
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(gasaccess_atom_change_updater_tests PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
+    elseif(MSVC)
+        target_compile_options(gasaccess_atom_change_updater_tests PRIVATE /W4)
+    endif()
+
+    add_test(
+        NAME gasaccess_atom_change_updater_tests
+        COMMAND gasaccess_atom_change_updater_tests
+    )
+
     add_executable(gasaccess_local_topology_filter_tests
         tests/test_local_topology_filter.cpp
     )
@@ -621,6 +648,46 @@ if(BUILD_TESTING)
                     LABELS "mpi"
                     PROCESSORS ${mpi_rank_count}
                     TIMEOUT 120
+            )
+        endforeach()
+
+        add_executable(gasaccess_distributed_atom_change_tests
+            tests/test_distributed_atom_change_updater.cpp
+        )
+        target_link_libraries(gasaccess_distributed_atom_change_tests
+            PRIVATE GasAccess::gasaccess_mpi
+        )
+
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(gasaccess_distributed_atom_change_tests PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+            )
+        elseif(MSVC)
+            target_compile_options(gasaccess_distributed_atom_change_tests
+                PRIVATE /W4
+            )
+        endif()
+
+        foreach(mpi_rank_count IN LISTS GASACCESS_MPI_TEST_RANK_COUNTS)
+            add_test(
+                NAME gasaccess_distributed_atom_change_tests_${mpi_rank_count}_ranks
+                COMMAND
+                    ${MPIEXEC_EXECUTABLE}
+                    ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                    ${MPIEXEC_PREFLAGS}
+                    $<TARGET_FILE:gasaccess_distributed_atom_change_tests>
+                    ${MPIEXEC_POSTFLAGS}
+            )
+            set_tests_properties(
+                gasaccess_distributed_atom_change_tests_${mpi_rank_count}_ranks
+                PROPERTIES
+                    LABELS "mpi"
+                    PROCESSORS ${mpi_rank_count}
+                    TIMEOUT 180
             )
         endforeach()
 

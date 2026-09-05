@@ -1,4 +1,4 @@
-#include "gasaccess/distributed_opening_region_repair.hpp"
+#include "gasaccess/distributed_closing_region_repair.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace gasaccess {
 namespace {
@@ -29,8 +30,9 @@ constexpr std::array<VoxelCoord, 6> neighbor_offsets{
     VoxelCoord{0, 0, -1},
     VoxelCoord{0, 0, 1}};
 
-constexpr int count_tag_base = 5610;
-constexpr int payload_tag_base = 5620;
+constexpr int count_tag_base = 5710;
+constexpr int payload_tag_base = 5720;
+constexpr std::size_t encoded_change_width = 4;
 
 std::size_t face_index(Face face) noexcept
 {
@@ -84,7 +86,6 @@ std::optional<VoxelCoord> normalized_neighbor(
     const VoxelCoord& voxel_coord,
     const GridSpec& grid_spec)
 {
-    VoxelCoord normalized = voxel_coord;
     const auto normalize_axis = [](
                                     std::int64_t coordinate,
                                     std::uint64_t dimension,
@@ -101,15 +102,15 @@ std::optional<VoxelCoord> normalized_neighbor(
     };
 
     const auto x = normalize_axis(
-        normalized.x,
+        voxel_coord.x,
         grid_spec.dimensions.x,
         grid_spec.periodic.x);
     const auto y = normalize_axis(
-        normalized.y,
+        voxel_coord.y,
         grid_spec.dimensions.y,
         grid_spec.periodic.y);
     const auto z = normalize_axis(
-        normalized.z,
+        voxel_coord.z,
         grid_spec.dimensions.z,
         grid_spec.periodic.z);
     if (!x.has_value() || !y.has_value() || !z.has_value()) {
@@ -151,10 +152,26 @@ bool voxel_coord_less(const VoxelCoord& lhs, const VoxelCoord& rhs) noexcept
     return lhs.x < rhs.x;
 }
 
+void sort_unique(std::vector<VoxelCoord>& voxel_coords)
+{
+    std::sort(voxel_coords.begin(), voxel_coords.end(), voxel_coord_less);
+    voxel_coords.erase(
+        std::unique(voxel_coords.begin(), voxel_coords.end()),
+        voxel_coords.end());
+}
+
 std::size_t owned_index(
     const VoxelCoord& voxel_coord,
     const OwnedVoxelRange& owned_range)
 {
+    if (voxel_coord.x < owned_range.begin.x
+        || voxel_coord.x >= owned_range.end.x
+        || voxel_coord.y < owned_range.begin.y
+        || voxel_coord.y >= owned_range.end.y
+        || voxel_coord.z < owned_range.begin.z
+        || voxel_coord.z >= owned_range.end.z) {
+        throw std::out_of_range("voxel coordinate is outside the owned range");
+    }
     const auto x = static_cast<std::uint64_t>(
         voxel_coord.x - owned_range.begin.x);
     const auto y = static_cast<std::uint64_t>(
@@ -173,7 +190,7 @@ std::size_t owned_index(
 std::uint64_t checked_product(std::uint64_t lhs, std::uint64_t rhs)
 {
     if (lhs != 0 && rhs > std::numeric_limits<std::uint64_t>::max() / lhs) {
-        throw std::overflow_error("opening-repair face size overflow");
+        throw std::overflow_error("closing-repair face size overflow");
     }
     return lhs * rhs;
 }
@@ -234,7 +251,7 @@ VoxelCoord decode_face_offset(
 {
     if (offset >= face_element_count(face, owned_range)) {
         throw std::runtime_error(
-            "received opening-repair offset exceeds owned face");
+            "received closing-repair offset exceeds owned face");
     }
 
     VoxelCoord voxel_coord{};
@@ -277,7 +294,7 @@ int checked_mpi_count(std::uint64_t count)
 {
     if (count > static_cast<std::uint64_t>(INT_MAX)) {
         throw std::overflow_error(
-            "MPI opening-repair payload exceeds INT_MAX entries");
+            "MPI closing-repair payload exceeds INT_MAX entries");
     }
     return static_cast<int>(count);
 }
@@ -286,7 +303,7 @@ void exchange_frontiers(
     const MpiDecomposition& decomposition,
     std::array<std::vector<std::uint64_t>, 6>& send_buffers,
     std::array<std::vector<std::uint64_t>, 6>& receive_buffers,
-    DistributedOpeningRegionRepairResult& result)
+    DistributedClosingRegionRepairResult& result)
 {
     std::array<std::uint64_t, 6> send_counts{};
     std::array<std::uint64_t, 6> receive_counts{};
@@ -318,7 +335,7 @@ void exchange_frontiers(
                 count_tag_base + static_cast<int>(opposite_face(face)),
                 communicator,
                 &requests[static_cast<std::size_t>(request_count)]),
-            "MPI_Irecv(opening-repair count)");
+            "MPI_Irecv(closing-repair count)");
         ++request_count;
         check_mpi(
             MPI_Isend(
@@ -329,13 +346,13 @@ void exchange_frontiers(
                 count_tag_base + static_cast<int>(face),
                 communicator,
                 &requests[static_cast<std::size_t>(request_count)]),
-            "MPI_Isend(opening-repair count)");
+            "MPI_Isend(closing-repair count)");
         ++request_count;
     }
     if (request_count != 0) {
         check_mpi(
             MPI_Waitall(request_count, requests.data(), MPI_STATUSES_IGNORE),
-            "MPI_Waitall(opening-repair counts)");
+            "MPI_Waitall(closing-repair counts)");
     }
 
     request_count = 0;
@@ -363,7 +380,7 @@ void exchange_frontiers(
                     payload_tag_base + static_cast<int>(opposite_face(face)),
                     communicator,
                     &requests[static_cast<std::size_t>(request_count)]),
-                "MPI_Irecv(opening-repair payload)");
+                "MPI_Irecv(closing-repair payload)");
             ++request_count;
         }
         if (send_counts[index] != 0) {
@@ -376,14 +393,14 @@ void exchange_frontiers(
                     payload_tag_base + static_cast<int>(face),
                     communicator,
                     &requests[static_cast<std::size_t>(request_count)]),
-                "MPI_Isend(opening-repair payload)");
+                "MPI_Isend(closing-repair payload)");
             ++request_count;
         }
     }
     if (request_count != 0) {
         check_mpi(
             MPI_Waitall(request_count, requests.data(), MPI_STATUSES_IGNORE),
-            "MPI_Waitall(opening-repair payloads)");
+            "MPI_Waitall(closing-repair payloads)");
     }
 
     for (const auto face : faces) {
@@ -393,22 +410,45 @@ void exchange_frontiers(
     }
 }
 
+void reduce_search_state(
+    MPI_Comm communicator,
+    bool local_active,
+    bool local_source_found,
+    bool& global_active,
+    bool& global_source_found)
+{
+    const std::array<int, 2> local_values{
+        local_active ? 1 : 0,
+        local_source_found ? 1 : 0};
+    std::array<int, 2> global_values{};
+    check_mpi(
+        MPI_Allreduce(
+            local_values.data(),
+            global_values.data(),
+            static_cast<int>(global_values.size()),
+            MPI_INT,
+            MPI_MAX,
+            communicator),
+        "MPI_Allreduce(closing-repair search state)");
+    global_active = global_values[0] != 0;
+    global_source_found = global_values[1] != 0;
+}
+
 void validate_collectively(
     const DistributedGasGrid& gas_grid,
-    NewlyGasVoxelCoordView newly_gas_voxel_view)
+    NewlySolidVoxelCoordView newly_solid_voxel_view)
 {
-    bool local_valid = newly_gas_voxel_view.count == 0
-        || newly_gas_voxel_view.voxel_coords != nullptr;
-    local_valid = local_valid
-        && gas_grid.owned_gas_state_count(GasState::Unclassified) == 0;
+    bool local_valid = newly_solid_voxel_view.count == 0
+        || newly_solid_voxel_view.voxels != nullptr;
     if (local_valid) {
         for (std::size_t index = 0;
-             index < newly_gas_voxel_view.count;
+             index < newly_solid_voxel_view.count;
              ++index) {
-            const auto& voxel_coord = newly_gas_voxel_view.voxel_coords[index];
-            if (!gas_grid.owns(voxel_coord)
-                || gas_grid.gas_state(voxel_coord) != GasState::ClosedVoid
-                || gas_grid.owned_blocker_count(voxel_coord) != 0) {
+            const auto& voxel = newly_solid_voxel_view.voxels[index];
+            if (!gas_grid.owns(voxel.voxel_coord)
+                || gas_grid.gas_state(voxel.voxel_coord) != GasState::Solid
+                || (voxel.previous_state != GasState::OutsideAccessible
+                    && voxel.previous_state != GasState::ClosedVoid)) {
                 local_valid = false;
                 break;
             }
@@ -425,220 +465,165 @@ void validate_collectively(
             MPI_INT,
             MPI_MIN,
             gas_grid.decomposition().spec().communicator),
-        "MPI_Allreduce(opening-repair validation)");
+        "MPI_Allreduce(closing-repair validation)");
     if (global_value == 0) {
         throw std::invalid_argument(
-            "distributed opening repair received invalid rank-local input");
+            "distributed closing repair received invalid rank-local input");
     }
 }
 
 }  // namespace
 
-DistributedOpeningRegionRepairResult DistributedOpeningRegionRepair::repair(
+DistributedClosingRegionRepairResult DistributedClosingRegionRepair::repair(
     DistributedGasGrid& gas_grid,
-    NewlyGasVoxelCoordView newly_gas_voxel_view,
-    bool face_ghost_states_current)
+    NewlySolidVoxelCoordView newly_solid_voxel_view)
 {
-    validate_collectively(gas_grid, newly_gas_voxel_view);
+    validate_collectively(gas_grid, newly_solid_voxel_view);
+    gather_newly_solid_voxels(gas_grid, newly_solid_voxel_view);
     prepare_workspace(gas_grid);
     begin_repair_epoch();
 
-    DistributedOpeningRegionRepairResult result{};
+    DistributedClosingRegionRepairResult result{};
     seed_voxels_.clear();
-    frontier_.clear();
-    for (auto& send_buffer : send_buffers_) {
-        send_buffer.clear();
-    }
-    for (auto& receive_buffer : receive_buffers_) {
-        receive_buffer.clear();
-    }
-
     const auto& grid_spec = gas_grid.global_grid_spec();
     const auto& owned_range = gas_grid.owned_range();
-    for (std::size_t index = 0;
-         index < newly_gas_voxel_view.count;
-         ++index) {
-        const auto voxel_coord = newly_gas_voxel_view.voxel_coords[index];
-        bool is_seed = is_reservoir_source(voxel_coord, grid_spec);
-        if (!is_seed) {
-            for (std::size_t neighbor_index = 0;
-                 neighbor_index < neighbor_offsets.size();
-                 ++neighbor_index) {
-                const auto& offset = neighbor_offsets[neighbor_index];
-                const VoxelCoord candidate{
-                    voxel_coord.x + offset.x,
-                    voxel_coord.y + offset.y,
-                    voxel_coord.z + offset.z};
-                const auto neighbor = normalized_neighbor(candidate, grid_spec);
-                if (!neighbor.has_value() || *neighbor == voxel_coord) {
-                    continue;
-                }
-                if (gas_grid.owns(*neighbor)
-                    && gas_grid.gas_state(*neighbor)
-                        == GasState::OutsideAccessible) {
-                    is_seed = true;
-                    break;
-                }
-                if (!gas_grid.owns(*neighbor)) {
-                    if (face_ghost_states_current
-                        && gas_grid.gas_state(*neighbor)
-                            == GasState::OutsideAccessible) {
-                        is_seed = true;
-                        break;
-                    }
-                    if (!face_ghost_states_current) {
-                        const auto face = faces[neighbor_index];
-                        if (gas_grid.decomposition().neighbor_rank(face)
-                            != MPI_PROC_NULL) {
-                            send_buffers_[face_index(face)].push_back(
-                                encode_face_offset(
-                                    face,
-                                    voxel_coord,
-                                    owned_range));
-                        }
-                    }
-                }
-            }
-        }
-        if (is_seed) {
-            seed_voxels_.push_back(voxel_coord);
-        }
-    }
-    if (!face_ghost_states_current) {
-        exchange_frontiers(
-            gas_grid.decomposition(),
-            send_buffers_,
-            receive_buffers_,
-            result);
-        ++result.communication_round_count;
+    const auto communicator = gas_grid.decomposition().spec().communicator;
 
-        for (auto& send_buffer : send_buffers_) {
-            send_buffer.clear();
+    for (const auto& newly_solid : global_newly_solid_voxels_) {
+        if (newly_solid.previous_state != GasState::OutsideAccessible) {
+            continue;
         }
-        for (const auto face : faces) {
-            for (const auto face_offset : receive_buffers_[face_index(face)]) {
-                const auto neighbor = decode_face_offset(
-                    face,
-                    face_offset,
-                    owned_range);
-                if (gas_grid.gas_state(neighbor)
-                    == GasState::OutsideAccessible) {
-                    send_buffers_[face_index(face)].push_back(face_offset);
-                }
-            }
-        }
-        exchange_frontiers(
-            gas_grid.decomposition(),
-            send_buffers_,
-            receive_buffers_,
-            result);
-        ++result.communication_round_count;
-        for (const auto face : faces) {
-            for (const auto face_offset : receive_buffers_[face_index(face)]) {
-                seed_voxels_.push_back(decode_face_offset(
-                    face,
-                    face_offset,
-                    owned_range));
+        for (const auto& offset : neighbor_offsets) {
+            const VoxelCoord candidate{
+                newly_solid.voxel_coord.x + offset.x,
+                newly_solid.voxel_coord.y + offset.y,
+                newly_solid.voxel_coord.z + offset.z};
+            const auto neighbor = normalized_neighbor(candidate, grid_spec);
+            if (neighbor.has_value()
+                && *neighbor != newly_solid.voxel_coord) {
+                seed_voxels_.push_back(*neighbor);
             }
         }
     }
-
-    std::sort(seed_voxels_.begin(), seed_voxels_.end(), voxel_coord_less);
-    seed_voxels_.erase(
-        std::unique(seed_voxels_.begin(), seed_voxels_.end()),
-        seed_voxels_.end());
-
-    const auto mark_open = [&](const VoxelCoord& voxel_coord) {
-        if (gas_grid.gas_state(voxel_coord) != GasState::ClosedVoid) {
-            return;
-        }
-        const auto index = owned_index(voxel_coord, owned_range);
-        if (visit_epochs_[index] == repair_epoch_) {
-            return;
-        }
-        visit_epochs_[index] = repair_epoch_;
-        gas_grid.set_owned_gas_state(
-            voxel_coord,
-            GasState::OutsideAccessible);
-        frontier_.push_back(voxel_coord);
-        result.newly_opened_owned_voxel_coords.push_back(voxel_coord);
-        ++result.local_visited_voxel_count;
-        ++result.local_opened_voxel_count;
-    };
+    sort_unique(seed_voxels_);
 
     for (const auto& seed_voxel : seed_voxels_) {
-        mark_open(seed_voxel);
-    }
-
-    int local_active = frontier_.empty() ? 0 : 1;
-    int global_active = 0;
-    check_mpi(
-        MPI_Allreduce(
-            &local_active,
-            &global_active,
-            1,
-            MPI_INT,
-            MPI_MAX,
-            gas_grid.decomposition().spec().communicator),
-        "MPI_Allreduce(initial opening frontier)");
-
-    while (global_active != 0) {
-        for (auto& send_buffer : send_buffers_) {
-            send_buffer.clear();
-        }
-
-        std::size_t frontier_head = 0;
-        while (frontier_head < frontier_.size()) {
-            const auto current = frontier_[frontier_head];
-            ++frontier_head;
-            for (std::size_t neighbor_index = 0;
-                 neighbor_index < neighbor_offsets.size();
-                 ++neighbor_index) {
-                const auto& offset = neighbor_offsets[neighbor_index];
-                const VoxelCoord candidate{
-                    current.x + offset.x,
-                    current.y + offset.y,
-                    current.z + offset.z};
-                const auto neighbor = normalized_neighbor(candidate, grid_spec);
-                if (!neighbor.has_value() || *neighbor == current) {
-                    continue;
-                }
-                if (gas_grid.owns(*neighbor)) {
-                    mark_open(*neighbor);
-                    continue;
-                }
-                const auto face = faces[neighbor_index];
-                if (gas_grid.decomposition().neighbor_rank(face)
-                    != MPI_PROC_NULL) {
-                    send_buffers_[face_index(face)].push_back(
-                        encode_face_offset(face, current, owned_range));
-                }
-            }
-        }
+        begin_search_epoch();
         frontier_.clear();
+        visited_voxels_.clear();
+        bool local_source_found = false;
 
-        exchange_frontiers(
-            gas_grid.decomposition(),
-            send_buffers_,
-            receive_buffers_,
-            result);
-        ++result.communication_round_count;
-        for (const auto face : faces) {
-            for (const auto face_offset : receive_buffers_[face_index(face)]) {
-                mark_open(decode_face_offset(face, face_offset, owned_range));
+        const auto visit_owned = [&](const VoxelCoord& voxel_coord) {
+            if (gas_grid.gas_state(voxel_coord)
+                != GasState::OutsideAccessible) {
+                return;
             }
+            const auto index = owned_index(voxel_coord, owned_range);
+            if (confirmed_outside_epochs_[index] == repair_epoch_) {
+                local_source_found = true;
+                return;
+            }
+            if (search_epochs_[index] == search_epoch_) {
+                return;
+            }
+            search_epochs_[index] = search_epoch_;
+            frontier_.push_back(voxel_coord);
+            visited_voxels_.push_back(voxel_coord);
+            ++result.local_visited_voxel_count;
+            if (is_reservoir_source(voxel_coord, grid_spec)) {
+                local_source_found = true;
+            }
+        };
+
+        if (gas_grid.owns(seed_voxel)) {
+            visit_owned(seed_voxel);
+        }
+        bool global_active = false;
+        bool global_source_found = false;
+        reduce_search_state(
+            communicator,
+            !frontier_.empty(),
+            local_source_found,
+            global_active,
+            global_source_found);
+        if (!global_active && !global_source_found) {
+            continue;
+        }
+        ++result.seed_search_count;
+
+        while (global_active && !global_source_found) {
+            for (auto& send_buffer : send_buffers_) {
+                send_buffer.clear();
+            }
+
+            std::size_t frontier_head = 0;
+            while (frontier_head < frontier_.size()) {
+                const auto current = frontier_[frontier_head];
+                ++frontier_head;
+                for (std::size_t neighbor_index = 0;
+                     neighbor_index < neighbor_offsets.size();
+                     ++neighbor_index) {
+                    const auto& offset = neighbor_offsets[neighbor_index];
+                    const VoxelCoord candidate{
+                        current.x + offset.x,
+                        current.y + offset.y,
+                        current.z + offset.z};
+                    const auto neighbor = normalized_neighbor(candidate, grid_spec);
+                    if (!neighbor.has_value() || *neighbor == current) {
+                        continue;
+                    }
+                    if (gas_grid.owns(*neighbor)) {
+                        visit_owned(*neighbor);
+                        continue;
+                    }
+                    const auto face = faces[neighbor_index];
+                    if (gas_grid.decomposition().neighbor_rank(face)
+                        != MPI_PROC_NULL) {
+                        send_buffers_[face_index(face)].push_back(
+                            encode_face_offset(face, current, owned_range));
+                    }
+                }
+            }
+            frontier_.clear();
+
+            exchange_frontiers(
+                gas_grid.decomposition(),
+                send_buffers_,
+                receive_buffers_,
+                result);
+            ++result.communication_round_count;
+            for (const auto face : faces) {
+                for (const auto face_offset :
+                     receive_buffers_[face_index(face)]) {
+                    visit_owned(decode_face_offset(
+                        face,
+                        face_offset,
+                        owned_range));
+                }
+            }
+
+            reduce_search_state(
+                communicator,
+                !frontier_.empty(),
+                local_source_found,
+                global_active,
+                global_source_found);
         }
 
-        local_active = frontier_.empty() ? 0 : 1;
-        check_mpi(
-            MPI_Allreduce(
-                &local_active,
-                &global_active,
-                1,
-                MPI_INT,
-                MPI_MAX,
-                gas_grid.decomposition().spec().communicator),
-            "MPI_Allreduce(opening frontier termination)");
+        if (global_source_found) {
+            for (const auto& voxel_coord : visited_voxels_) {
+                confirmed_outside_epochs_[owned_index(
+                    voxel_coord,
+                    owned_range)] = repair_epoch_;
+            }
+            continue;
+        }
+
+        for (const auto& voxel_coord : visited_voxels_) {
+            gas_grid.set_owned_gas_state(voxel_coord, GasState::ClosedVoid);
+            result.newly_closed_owned_voxel_coords.push_back(voxel_coord);
+            ++result.local_closed_voxel_count;
+        }
     }
 
     const std::uint64_t local_participated =
@@ -650,35 +635,149 @@ DistributedOpeningRegionRepairResult DistributedOpeningRegionRepair::repair(
             1,
             MPI_UINT64_T,
             MPI_SUM,
-            gas_grid.decomposition().spec().communicator),
-        "MPI_Allreduce(opening participating ranks)");
-    std::sort(
-        result.newly_opened_owned_voxel_coords.begin(),
-        result.newly_opened_owned_voxel_coords.end(),
-        voxel_coord_less);
+            communicator),
+        "MPI_Allreduce(closing participating ranks)");
+    sort_unique(result.newly_closed_owned_voxel_coords);
     return result;
 }
 
-void DistributedOpeningRegionRepair::prepare_workspace(
+void DistributedClosingRegionRepair::gather_newly_solid_voxels(
+    const DistributedGasGrid& gas_grid,
+    NewlySolidVoxelCoordView newly_solid_voxel_view)
+{
+    const auto count_limit = static_cast<std::uint64_t>(INT_MAX)
+        / encoded_change_width;
+    if (newly_solid_voxel_view.count
+        > static_cast<std::size_t>(count_limit)) {
+        throw std::overflow_error(
+            "too many local newly solid voxels for MPI gather");
+    }
+
+    std::vector<std::int64_t> local_values;
+    local_values.reserve(
+        newly_solid_voxel_view.count * encoded_change_width);
+    for (std::size_t index = 0;
+         index < newly_solid_voxel_view.count;
+         ++index) {
+        const auto& voxel = newly_solid_voxel_view.voxels[index];
+        local_values.push_back(voxel.voxel_coord.x);
+        local_values.push_back(voxel.voxel_coord.y);
+        local_values.push_back(voxel.voxel_coord.z);
+        local_values.push_back(
+            static_cast<std::int64_t>(voxel.previous_state));
+    }
+
+    const auto rank_count = static_cast<std::size_t>(
+        gas_grid.decomposition().size());
+    const int local_value_count = static_cast<int>(local_values.size());
+    std::vector<int> receive_counts(rank_count, 0);
+    check_mpi(
+        MPI_Allgather(
+            &local_value_count,
+            1,
+            MPI_INT,
+            receive_counts.data(),
+            1,
+            MPI_INT,
+            gas_grid.decomposition().spec().communicator),
+        "MPI_Allgather(newly solid voxel counts)");
+
+    std::vector<int> displacements(rank_count, 0);
+    std::uint64_t total_value_count = 0;
+    for (std::size_t rank_index = 0;
+         rank_index < rank_count;
+         ++rank_index) {
+        if (receive_counts[rank_index] < 0
+            || receive_counts[rank_index]
+                % static_cast<int>(encoded_change_width) != 0
+            || total_value_count > static_cast<std::uint64_t>(INT_MAX)) {
+            throw std::overflow_error("invalid newly-solid gather count");
+        }
+        displacements[rank_index] = static_cast<int>(total_value_count);
+        total_value_count += static_cast<std::uint64_t>(
+            receive_counts[rank_index]);
+    }
+    if (total_value_count > static_cast<std::uint64_t>(INT_MAX)) {
+        throw std::overflow_error("newly-solid gather exceeds MPI int count");
+    }
+
+    std::vector<std::int64_t> global_values(
+        static_cast<std::size_t>(total_value_count));
+    check_mpi(
+        MPI_Allgatherv(
+            local_values.data(),
+            local_value_count,
+            MPI_INT64_T,
+            global_values.data(),
+            receive_counts.data(),
+            displacements.data(),
+            MPI_INT64_T,
+            gas_grid.decomposition().spec().communicator),
+        "MPI_Allgatherv(newly solid voxels)");
+
+    global_newly_solid_voxels_.clear();
+    global_newly_solid_voxels_.reserve(
+        global_values.size() / encoded_change_width);
+    for (std::size_t index = 0;
+         index < global_values.size();
+         index += encoded_change_width) {
+        const auto state = global_values[index + 3];
+        if (state != static_cast<std::int64_t>(GasState::OutsideAccessible)
+            && state != static_cast<std::int64_t>(GasState::ClosedVoid)) {
+            throw std::runtime_error(
+                "received invalid newly-solid previous state");
+        }
+        global_newly_solid_voxels_.push_back({
+            {global_values[index],
+             global_values[index + 1],
+             global_values[index + 2]},
+            static_cast<GasState>(state)});
+    }
+    std::sort(
+        global_newly_solid_voxels_.begin(),
+        global_newly_solid_voxels_.end(),
+        [](const DistributedRemovedVoxel& lhs,
+           const DistributedRemovedVoxel& rhs) {
+            return voxel_coord_less(lhs.voxel_coord, rhs.voxel_coord);
+        });
+}
+
+void DistributedClosingRegionRepair::prepare_workspace(
     const DistributedGasGrid& gas_grid)
 {
     const auto voxel_count = static_cast<std::size_t>(
         gas_grid.owned_voxel_count());
-    if (visit_epochs_.size() == voxel_count) {
+    if (search_epochs_.size() == voxel_count
+        && confirmed_outside_epochs_.size() == voxel_count) {
         return;
     }
-    visit_epochs_.assign(voxel_count, 0);
+    search_epochs_.assign(voxel_count, 0);
+    confirmed_outside_epochs_.assign(voxel_count, 0);
+    search_epoch_ = 0;
     repair_epoch_ = 0;
 }
 
-void DistributedOpeningRegionRepair::begin_repair_epoch()
+void DistributedClosingRegionRepair::begin_repair_epoch()
 {
     ++repair_epoch_;
     if (repair_epoch_ != 0) {
         return;
     }
-    std::fill(visit_epochs_.begin(), visit_epochs_.end(), 0);
+    std::fill(
+        confirmed_outside_epochs_.begin(),
+        confirmed_outside_epochs_.end(),
+        0);
     repair_epoch_ = 1;
+}
+
+void DistributedClosingRegionRepair::begin_search_epoch()
+{
+    ++search_epoch_;
+    if (search_epoch_ != 0) {
+        return;
+    }
+    std::fill(search_epochs_.begin(), search_epochs_.end(), 0);
+    search_epoch_ = 1;
 }
 
 }  // namespace gasaccess
