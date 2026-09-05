@@ -10,10 +10,13 @@ extern "C" {
 
 typedef struct ga_grid ga_grid;
 typedef struct ga_update_result ga_update_result;
+typedef struct ga_atom_change_result ga_atom_change_result;
 
 typedef uint64_t ga_voxel_id;
 typedef uint8_t ga_gas_state;
 typedef uint8_t ga_connectivity_repair_mode;
+typedef uint8_t ga_atom_change_repair_mode;
+typedef uint8_t ga_accessibility_repair_kind;
 typedef int32_t ga_status;
 
 #define GA_STATUS_SUCCESS ((ga_status)0)
@@ -32,6 +35,17 @@ typedef int32_t ga_status;
     ((ga_connectivity_repair_mode)0)
 #define GA_CONNECTIVITY_REPAIR_FULL_RECLASSIFICATION \
     ((ga_connectivity_repair_mode)1)
+
+#define GA_ATOM_CHANGE_REPAIR_INCREMENTAL ((ga_atom_change_repair_mode)0)
+#define GA_ATOM_CHANGE_REPAIR_FULL_RECLASSIFICATION \
+    ((ga_atom_change_repair_mode)1)
+
+#define GA_ACCESSIBILITY_REPAIR_NONE ((ga_accessibility_repair_kind)0)
+#define GA_ACCESSIBILITY_REPAIR_CLOSING ((ga_accessibility_repair_kind)1)
+#define GA_ACCESSIBILITY_REPAIR_OPENING ((ga_accessibility_repair_kind)2)
+#define GA_ACCESSIBILITY_REPAIR_MIXED ((ga_accessibility_repair_kind)3)
+#define GA_ACCESSIBILITY_REPAIR_FULL_RECLASSIFICATION \
+    ((ga_accessibility_repair_kind)4)
 
 #define GA_MAX_SITE_VOXEL_COUNT ((size_t)27)
 
@@ -89,6 +103,18 @@ typedef struct ga_atom {
     double radius;
 } ga_atom;
 
+typedef struct ga_atom_view {
+    const ga_atom* atoms;
+    size_t count;
+} ga_atom_view;
+
+/* Added atoms use their new records. Removed atoms use their old positions
+ * and radii. Both views are copied before the update returns. */
+typedef struct ga_atom_change_batch {
+    ga_atom_view added_atoms;
+    ga_atom_view removed_atoms;
+} ga_atom_change_batch;
+
 typedef struct ga_classification_summary {
     ga_voxel_id solid_count;
     ga_voxel_id outside_accessible_count;
@@ -106,6 +132,22 @@ typedef struct ga_deposition_update_summary {
     uint8_t affected_region_repair_performed;
     ga_classification_summary classification;
 } ga_deposition_update_summary;
+
+typedef struct ga_atom_change_update_summary {
+    ga_voxel_id blocker_count_changed_voxel_count;
+    ga_voxel_id newly_solid_count;
+    ga_voxel_id newly_gas_count;
+    size_t changed_voxel_count;
+    ga_accessibility_repair_kind repair_kind;
+    uint8_t full_reclassification_performed;
+    uint8_t closing_repair_performed;
+    uint8_t opening_repair_performed;
+    ga_voxel_id closing_visited_voxel_count;
+    ga_voxel_id opening_visited_voxel_count;
+    ga_voxel_id repair_closed_voxel_count;
+    ga_voxel_id repair_opened_voxel_count;
+    ga_classification_summary classification;
+} ga_atom_change_update_summary;
 
 /* The returned thread-local message remains valid until the next C API call
  * on the same thread. It is empty after a successful status-returning call. */
@@ -173,6 +215,43 @@ ga_status ga_update_result_get_summary(
  * destroyed. It may be null when out_count is zero. */
 ga_status ga_update_result_get_changed_voxels(
     const ga_update_result* update_result,
+    const ga_voxel_id** out_voxel_ids,
+    size_t* out_count);
+
+/* Reversible updates return a separate result type so the existing deposition
+ * ABI and result contract remain unchanged. The grid must be classified. */
+ga_status ga_apply_desorption(
+    ga_grid* grid,
+    const ga_atom* removed_atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_atom_change_result** out_change_result);
+ga_status ga_apply_desorption_with_mode(
+    ga_grid* grid,
+    const ga_atom* removed_atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_atom_change_repair_mode repair_mode,
+    ga_atom_change_result** out_change_result);
+ga_status ga_apply_atom_changes(
+    ga_grid* grid,
+    const ga_atom_change_batch* atom_changes,
+    double precursor_radius,
+    ga_atom_change_result** out_change_result);
+ga_status ga_apply_atom_changes_with_mode(
+    ga_grid* grid,
+    const ga_atom_change_batch* atom_changes,
+    double precursor_radius,
+    ga_atom_change_repair_mode repair_mode,
+    ga_atom_change_result** out_change_result);
+void ga_atom_change_result_destroy(ga_atom_change_result* change_result);
+ga_status ga_atom_change_result_get_summary(
+    const ga_atom_change_result* change_result,
+    ga_atom_change_update_summary* out_summary);
+/* The returned array is sorted, unique, and valid until the result is
+ * destroyed. It may be null when out_count is zero. */
+ga_status ga_atom_change_result_get_changed_voxels(
+    const ga_atom_change_result* change_result,
     const ga_voxel_id** out_voxel_ids,
     size_t* out_count);
 

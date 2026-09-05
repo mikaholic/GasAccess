@@ -110,9 +110,9 @@ desorption, C API, static-integration, and efficiency tests remain passing.
 ## Scope boundary
 
 Phase R4 establishes the C++ algorithm and correctness contract. Stable C API
-descriptors and the production tKMC event buffer remain Phase R5. Repeated
-deposition, desorption, and mixed best/medium/worst efficiency measurements
-remain Phase R6.
+descriptors and the tKMC-oriented event buffer were deferred to Phase R5 and
+are now complete. Repeated deposition, desorption, and mixed
+best/medium/worst efficiency measurements remain Phase R6.
 
 ## Conclusion
 

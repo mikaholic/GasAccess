@@ -62,6 +62,15 @@ public:
         GasGrid& gas_grid,
         const AtomChangeBatch& atom_changes) const;
 
+    // Convenience wrappers for callers that use one persistent updater for
+    // every event kind.
+    AtomChangeUpdateResult apply_deposition(
+        GasGrid& gas_grid,
+        AtomView added_atoms) const;
+    AtomChangeUpdateResult apply_desorption(
+        GasGrid& gas_grid,
+        AtomView removed_atoms) const;
+
 private:
     AtomVoxelizer atom_voxelizer_;
     AtomChangeRepairMode repair_mode_ = AtomChangeRepairMode::Incremental;

@@ -1,5 +1,8 @@
 #include "gasaccess/accessibility_query.hpp"
+#include "gasaccess/atom_change_event_buffer.hpp"
+#include "gasaccess/atom_change_updater.hpp"
 #include "gasaccess/atom_voxelizer.hpp"
+#include "gasaccess/distributed_atom_change_updater.hpp"
 #include "gasaccess/distributed_exterior_classifier.hpp"
 #include "gasaccess/exterior_classifier.hpp"
 #include "gasaccess/spparks_adapter.hpp"
@@ -8,6 +11,7 @@
 
 #include <mpi.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -22,8 +26,14 @@
 namespace {
 
 using gasaccess::Atom;
+using gasaccess::AccessibilityRepairKind;
+using gasaccess::AtomChangeEventBuffer;
+using gasaccess::AtomChangeUpdateResult;
+using gasaccess::AtomChangeUpdater;
 using gasaccess::AtomView;
 using gasaccess::AtomVoxelizer;
+using gasaccess::DistributedAtomChangeUpdateResult;
+using gasaccess::DistributedAtomChangeUpdater;
 using gasaccess::DistributedExteriorClassifier;
 using gasaccess::DistributedGasAccessibilityQuery;
 using gasaccess::DistributedGasGrid;
@@ -35,6 +45,7 @@ using gasaccess::SpparksAdapterConfig;
 using gasaccess::SpparksAtomBuffer;
 using gasaccess::VoxelCoord;
 using gasaccess::testing::MockScenario;
+using gasaccess::testing::MockSpparksAtom;
 using gasaccess::testing::MockSpparksApp;
 using gasaccess::testing::MockSpparksDomain;
 
@@ -96,9 +107,296 @@ void compare_owned_states(
         for (auto y = range.begin.y; y < range.end.y; ++y) {
             for (auto x = range.begin.x; x < range.end.x; ++x) {
                 const VoxelCoord coordinate{x, y, z};
+                REQUIRE(distributed_grid.owned_blocker_count(coordinate)
+                        == serial_grid.blocker_count(coordinate));
                 REQUIRE(distributed_grid.gas_state(coordinate)
                         == serial_grid.gas_state(coordinate));
             }
+        }
+    }
+}
+
+void compare_face_ghost_states(
+    const DistributedGasGrid& distributed_grid,
+    const GasGrid& serial_grid);
+
+struct MockKmcStep {
+    std::vector<MockSpparksAtom> added_atoms{};
+    std::vector<MockSpparksAtom> removed_atoms{};
+    AccessibilityRepairKind expected_repair_kind =
+        AccessibilityRepairKind::None;
+};
+
+std::vector<MockSpparksAtom> locally_owned_events(
+    const MockSpparksDomain& domain,
+    const std::vector<MockSpparksAtom>& events)
+{
+    std::vector<MockSpparksAtom> owned_events;
+    for (const auto& event : events) {
+        if (domain.owns(event.position)) {
+            owned_events.push_back(event);
+        }
+    }
+    return owned_events;
+}
+
+void append_mock_app_events(
+    const MockSpparksApp& app,
+    bool additions,
+    AtomChangeEventBuffer& event_buffer)
+{
+    const auto atom_count = static_cast<std::size_t>(app.nlocal + app.nghost);
+    for (std::size_t index = 0; index < atom_count; ++index) {
+        const Atom atom{
+            {app.xyz[index][0], app.xyz[index][1], app.xyz[index][2]},
+            app.radius[index]};
+        if (additions) {
+            event_buffer.record_deposition(atom);
+        } else {
+            event_buffer.record_desorption(atom);
+        }
+    }
+}
+
+AtomChangeEventBuffer synchronize_event_step(
+    const MockSpparksDomain& domain,
+    const MockKmcStep& step,
+    double ghost_distance)
+{
+    MockSpparksApp added_events(domain);
+    added_events.set_owned_atoms(locally_owned_events(
+        domain,
+        step.added_atoms));
+    added_events.synchronize_ghost_atoms(ghost_distance);
+
+    // This separate application-style buffer is intentional: removed atoms
+    // carry their old records even after the KMC atom list has discarded them.
+    MockSpparksApp removed_events(domain);
+    removed_events.set_owned_atoms(locally_owned_events(
+        domain,
+        step.removed_atoms));
+    removed_events.synchronize_ghost_atoms(ghost_distance);
+
+    AtomChangeEventBuffer event_buffer;
+    event_buffer.reserve(
+        static_cast<std::size_t>(
+            added_events.nlocal + added_events.nghost),
+        static_cast<std::size_t>(
+            removed_events.nlocal + removed_events.nghost));
+    append_mock_app_events(added_events, true, event_buffer);
+    append_mock_app_events(removed_events, false, event_buffer);
+    return event_buffer;
+}
+
+AtomChangeEventBuffer global_event_step(const MockKmcStep& step)
+{
+    AtomChangeEventBuffer event_buffer;
+    for (const auto& atom : step.added_atoms) {
+        event_buffer.record_deposition({atom.position, atom.radius});
+    }
+    for (const auto& atom : step.removed_atoms) {
+        event_buffer.record_desorption({atom.position, atom.radius});
+    }
+    return event_buffer;
+}
+
+void apply_to_atom_source(
+    std::vector<MockSpparksAtom>& atoms,
+    const MockKmcStep& step)
+{
+    for (const auto& removed_atom : step.removed_atoms) {
+        const auto iterator = std::find_if(
+            atoms.begin(),
+            atoms.end(),
+            [&removed_atom](const MockSpparksAtom& atom) {
+                return atom.id == removed_atom.id;
+            });
+        REQUIRE(iterator != atoms.end());
+        REQUIRE(iterator->position.x == removed_atom.position.x);
+        REQUIRE(iterator->position.y == removed_atom.position.y);
+        REQUIRE(iterator->position.z == removed_atom.position.z);
+        REQUIRE(iterator->radius == removed_atom.radius);
+        atoms.erase(iterator);
+    }
+    for (const auto& added_atom : step.added_atoms) {
+        const auto duplicate = std::find_if(
+            atoms.begin(),
+            atoms.end(),
+            [&added_atom](const MockSpparksAtom& atom) {
+                return atom.id == added_atom.id;
+            });
+        REQUIRE(duplicate == atoms.end());
+        atoms.push_back(added_atom);
+    }
+}
+
+std::vector<Atom> convert_atoms(const std::vector<MockSpparksAtom>& mock_atoms)
+{
+    std::vector<Atom> atoms;
+    atoms.reserve(mock_atoms.size());
+    for (const auto& atom : mock_atoms) {
+        atoms.push_back({atom.position, atom.radius});
+    }
+    return atoms;
+}
+
+void compare_changed_coordinates(
+    const DistributedGasGrid& distributed_grid,
+    const DistributedAtomChangeUpdateResult& distributed_result,
+    const GasGrid& serial_grid,
+    const AtomChangeUpdateResult& serial_result)
+{
+    std::vector<VoxelCoord> expected_owned_changes;
+    for (const auto voxel_id : serial_result.changed_voxel_ids) {
+        const auto coordinate = serial_grid.voxel_coord(voxel_id);
+        if (distributed_grid.owns(coordinate)) {
+            expected_owned_changes.push_back(coordinate);
+        }
+    }
+    REQUIRE(distributed_result.changed_owned_voxel_coords
+            == expected_owned_changes);
+}
+
+void test_reversible_tkmc_event_sequence(int process_count)
+{
+    constexpr double atom_radius = 1.1;
+    constexpr double precursor_radius = 0.0;
+    constexpr double ghost_distance = atom_radius + precursor_radius;
+    const GridDimensions process_grid{
+        static_cast<std::uint64_t>(process_count), 1, 1};
+    const gasaccess::Point3 global_lower{0.0, 0.0, 0.0};
+    const gasaccess::Point3 global_upper{32.0, 1.0, 1.0};
+    MockSpparksDomain domain(
+        MPI_COMM_WORLD,
+        global_lower,
+        global_upper,
+        process_grid,
+        {false, false, false});
+
+    gasaccess::SpparksAdapterConfig adapter_config{};
+    adapter_config.requested_spacing = {1.0, 1.0, 1.0};
+    adapter_config.reservoir_faces.x_low = true;
+    adapter_config.atom_ghost_distance = ghost_distance;
+    adapter_config.maximum_excluded_radius = ghost_distance;
+    const auto grid_spec = gasaccess::make_spparks_grid_spec(
+        domain,
+        adapter_config);
+    const auto decomposition_spec =
+        gasaccess::make_spparks_decomposition_spec(
+            domain,
+            domain.world,
+            adapter_config);
+
+    std::vector<MockSpparksAtom> active_atoms{
+        {1, {7.5, 0.5, 0.5}, atom_radius},
+        {2, {23.5, 0.5, 0.5}, atom_radius}};
+    MockSpparksApp app(domain);
+    app.set_owned_atoms(locally_owned_events(domain, active_atoms));
+    app.synchronize_ghost_atoms(ghost_distance);
+    SpparksAtomBuffer initial_atom_buffer;
+    initial_atom_buffer.assign(
+        app,
+        [&app](std::size_t atom_index) {
+            return app.radius[atom_index];
+        });
+
+    DistributedGasGrid distributed_grid(grid_spec, decomposition_spec);
+    distributed_grid.voxelize_owned_atoms(
+        initial_atom_buffer.atom_view(),
+        precursor_radius);
+    DistributedExteriorClassifier{}.classify(distributed_grid);
+
+    GasGrid serial_grid(grid_spec);
+    auto initial_serial_atoms = convert_atoms(active_atoms);
+    AtomVoxelizer(precursor_radius).voxelize(
+        serial_grid,
+        {initial_serial_atoms.data(), initial_serial_atoms.size()});
+    ExteriorClassifier{}.classify(serial_grid);
+    compare_owned_states(distributed_grid, serial_grid);
+    compare_face_ghost_states(distributed_grid, serial_grid);
+
+    const MockSpparksAtom atom_2_old = active_atoms[1];
+    const MockSpparksAtom atom_2_new{
+        2, {24.5, 0.5, 0.5}, atom_radius};
+    const MockSpparksAtom atom_3{
+        3, {15.5, 0.5, 0.5}, atom_radius};
+    const MockSpparksAtom atom_4{
+        4, {11.5, 0.5, 0.5}, atom_radius};
+    const std::vector<MockKmcStep> steps{
+        {{atom_3}, {}, AccessibilityRepairKind::Closing},
+        {{}, {active_atoms[0]}, AccessibilityRepairKind::Opening},
+        {{atom_2_new}, {atom_2_old}, AccessibilityRepairKind::Mixed},
+        {{atom_4}, {atom_3}, AccessibilityRepairKind::Mixed},
+        {{}, {}, AccessibilityRepairKind::None},
+        {{atom_4}, {atom_4}, AccessibilityRepairKind::None}};
+
+    DistributedAtomChangeUpdater distributed_updater(precursor_radius);
+    AtomChangeUpdater serial_updater(precursor_radius);
+    for (std::size_t step_index = 0; step_index < steps.size(); ++step_index) {
+        const auto& step = steps[step_index];
+        auto distributed_events = synchronize_event_step(
+            domain,
+            step,
+            ghost_distance);
+        auto serial_events = global_event_step(step);
+
+        DistributedAtomChangeUpdateResult distributed_result{};
+        AtomChangeUpdateResult serial_result{};
+        if (step_index == 0) {
+            distributed_result = distributed_updater.apply_deposition(
+                distributed_grid,
+                distributed_events.added_atoms());
+            serial_result = serial_updater.apply_deposition(
+                serial_grid,
+                serial_events.added_atoms());
+        } else if (step_index == 1) {
+            distributed_result = distributed_updater.apply_desorption(
+                distributed_grid,
+                distributed_events.removed_atoms());
+            serial_result = serial_updater.apply_desorption(
+                serial_grid,
+                serial_events.removed_atoms());
+        } else {
+            distributed_result = distributed_updater.apply_atom_changes(
+                distributed_grid,
+                distributed_events.atom_changes());
+            serial_result = serial_updater.apply_atom_changes(
+                serial_grid,
+                serial_events.atom_changes());
+        }
+
+        REQUIRE(distributed_result.repair_kind
+                == step.expected_repair_kind);
+        REQUIRE(serial_result.repair_kind == step.expected_repair_kind);
+        REQUIRE(distributed_result.global_newly_solid_count
+                == serial_result.newly_solid_count);
+        REQUIRE(distributed_result.global_newly_gas_count
+                == serial_result.newly_gas_count);
+        compare_changed_coordinates(
+            distributed_grid,
+            distributed_result,
+            serial_grid,
+            serial_result);
+
+        apply_to_atom_source(active_atoms, step);
+        GasGrid reconstructed_grid(grid_spec);
+        const auto reconstructed_atoms = convert_atoms(active_atoms);
+        AtomVoxelizer(precursor_radius).voxelize(
+            reconstructed_grid,
+            {reconstructed_atoms.data(), reconstructed_atoms.size()});
+        ExteriorClassifier{}.classify(reconstructed_grid);
+        compare_owned_states(distributed_grid, reconstructed_grid);
+        compare_face_ghost_states(distributed_grid, reconstructed_grid);
+        compare_owned_states(distributed_grid, serial_grid);
+
+        const DistributedGasAccessibilityQuery distributed_query(
+            distributed_grid);
+        const GasAccessibilityQuery serial_query(reconstructed_grid);
+        const auto& owned_range = distributed_grid.owned_range();
+        for (auto x = owned_range.begin.x; x < owned_range.end.x; ++x) {
+            const auto center = distributed_grid.voxel_center({x, 0, 0});
+            REQUIRE(distributed_query.is_site_accessible(center)
+                    == serial_query.is_site_accessible(center));
         }
     }
 }
@@ -337,6 +635,9 @@ int main(int argument_count, char** arguments)
          }},
         {"ghost cutoff guard", [&]() {
              test_ghost_cutoff_guard(rank, process_count);
+         }},
+        {"reversible tKMC event sequence", [&]() {
+             test_reversible_tkmc_event_sequence(process_count);
          }}};
     for (const auto& test : tests) {
         try {

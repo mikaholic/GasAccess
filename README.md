@@ -8,7 +8,8 @@ The current implementation includes the original serial and distributed
 geometry/connectivity/query baseline, distributed incremental repair for
 monotonic deposition, and Phase R3 serial and distributed incremental
 desorption repair. Phase R4 adds atomic mixed deposition/desorption repair in
-both the serial and distributed C++ layers.
+both the serial and distributed C++ layers. Phase R5 exposes the reversible
+path through the C API and a tKMC-oriented owning event buffer.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -40,7 +41,9 @@ both the serial and distributed C++ layers.
   with overlap-safe occupancy and forced full-reclassification reference modes;
 - atomic mixed atom-change batches with incremental closing-then-opening
   repair and one final MPI ghost-state synchronization;
-- an exception-safe C99 API with opaque grid and update-result handles;
+- an owning KMC event buffer that retains added and old removed-atom records;
+- an exception-safe C99 API with separate legacy-deposition and reversible
+  update-result handles;
 - deterministic open-trench, sealed-trench, and bulk workload generation;
 - machine-readable correctness checksums, timings, and memory reporting;
 - MPI-aligned global dimensions and exact integer owned ranges;
@@ -230,6 +233,51 @@ an intermediate full ghost exchange; final face ghosts are synchronized once.
 differential-testing reference path. Details are recorded in
 [`docs/benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md`](docs/benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md).
 
+Callers may retain one updater for all event kinds. The owning event buffer
+keeps old desorption records valid through the update:
+
+```cpp
+gasaccess::AtomChangeEventBuffer events;
+events.record_deposition(added_atom);
+events.record_desorption(removed_atom_at_old_position);
+events.record_move(old_atom, new_atom);
+
+const auto result = updater.apply_atom_changes(
+    distributed_grid,
+    events.atom_changes());
+events.clear();
+```
+
+Under MPI, the host application must synchronize both event directions far
+enough to cover every affected owned voxel before recording the rank-local
+views. Every rank then calls the updater collectively, including ranks whose
+event buffer is empty.
+
+## Reversible C API
+
+The C99 interface preserves `ga_apply_deposition()` and its existing result
+contract. Reversible clients use `ga_atom_change_batch` and the separate
+`ga_atom_change_result` lifecycle:
+
+```c
+ga_atom_change_batch changes = {
+    {added_atoms, added_atom_count},
+    {removed_atoms_at_old_positions, removed_atom_count}
+};
+ga_atom_change_result* result = NULL;
+
+ga_status status = ga_apply_atom_changes(
+    grid, &changes, precursor_radius, &result);
+ga_atom_change_update_summary summary;
+ga_atom_change_result_get_summary(result, &summary);
+ga_atom_change_result_destroy(result);
+```
+
+`ga_apply_desorption()` is the pure-removal convenience entry point. Both
+operations also have `_with_mode` variants for forced full reclassification.
+The Phase R5 interface and mock tKMC acceptance results are documented in
+[`docs/benchmarks/PHASE_R5_PUBLIC_INTEGRATION.md`](docs/benchmarks/PHASE_R5_PUBLIC_INTEGRATION.md).
+
 ## SPPARKS-style static acceptance
 
 Run the open trench, sealed trench, and million-atom slab through the same
@@ -252,7 +300,7 @@ results are recorded in
 ## MPI lifecycle efficiency driver
 
 The repeated efficiency driver covers KMC initialization, cached coordinate
-queries, and collective deposition repair:
+queries, and collective deposition, desorption, or mixed atom-change repair:
 
 ```sh
 mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
@@ -262,15 +310,23 @@ mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
     --operation query --scenario million-slab --query-count 1000000
 
 mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
-    --operation repair --case worst --nx 128 --ny 128 --nz 128
+    --operation repair --change-kind desorption \
+    --case worst --nx 128 --ny 128 --nz 128
+
+mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
+    --operation repair --change-kind mixed \
+    --case medium --nx 128 --ny 128 --nz 128
 ```
 
 Fast operations repeat until the requested cumulative measured duration is
-reached. The primary result is average slowest-rank operation time. Repair
-cases include detection-only, best, medium, and a 75%-volume all-rank flood
-fill. Commands, fixture definitions, correctness checks, and the output schema
-are documented in
-[`docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md`](docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md).
+reached. The primary result is average slowest-rank operation time. Each repair
+case is checked against a paired forced-full reclassification, and closing and
+opening traversal metrics are reported separately. Deposition remains the
+default `--change-kind` for compatibility. The original lifecycle driver is
+documented in
+[`docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md`](docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md);
+the complete reversible matrix and repeated results are in
+[`docs/benchmarks/PHASE_R6_REVERSIBLE_EFFICIENCY.md`](docs/benchmarks/PHASE_R6_REVERSIBLE_EFFICIENCY.md).
 
 ## Reference driver
 

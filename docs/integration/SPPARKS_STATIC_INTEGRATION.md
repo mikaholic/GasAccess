@@ -73,13 +73,39 @@ const bool accessible = query.is_site_accessible(atom_position);
 That call uses cached owned/face-ghost gas states and performs no MPI
 communication. The KMC remains responsible for its ordinary rate scan.
 
-For a later geometry rebuild, repeat atom synchronization, clear/reconstruct
-owned occupancy from the current atoms, and classify again. Monotonic
-deposition can use `DistributedDepositionUpdater`; atom removal can use
-`DistributedDesorptionUpdater` with the removed atoms' old positions and
-radii. The Phase R4 `DistributedAtomChangeUpdater` handles atom moves and
-mixed addition/removal batches atomically. Production tKMC event-buffer and C
-API integration remain Phase R5 work.
+## Reversible event sequence
+
+At a caller-selected synchronization point, the host synchronizes added event
+records at their new positions and removed event records at their old
+positions. `AtomChangeEventBuffer` owns those records while GasAccess performs
+the collective update:
+
+```cpp
+gasaccess::AtomChangeEventBuffer events;
+for (const auto& atom : synchronized_added_events) {
+    events.record_deposition(atom);
+}
+for (const auto& atom : synchronized_removed_events) {
+    events.record_desorption(atom);  // old position and radius
+}
+
+gasaccess::DistributedAtomChangeUpdater updater(precursor_radius);
+const auto result = updater.apply_atom_changes(
+    gas_grid,
+    events.atom_changes());
+events.clear();
+```
+
+The buffer deliberately does not choose synchronization timing or perform atom
+communication. tKMC retains that flexibility and may accumulate several
+sector-safe events before synchronizing. Every rank must enter the collective
+in the same order, including ranks with empty buffers. Accessibility queries
+remain local and communication-free after the updater returns.
+
+The existing `DistributedDepositionUpdater` and
+`DistributedDesorptionUpdater` interfaces remain available. The unified
+updater also provides `apply_deposition()` and `apply_desorption()` convenience
+methods for applications that prefer one persistent update object.
 
 ## Mock application
 
@@ -98,6 +124,14 @@ They cover:
 - the same trench with a cap, whose internal wall probes are inaccessible;
 - a 128 x 128 x 64 solid slab containing 1,048,576 atoms beneath an equally
   sized gas region.
+- a reversible six-step tKMC sequence containing deposition, desorption, an
+  atom move, a mixed batch, an empty batch, and a no-net-change batch.
+
+The reversible sequence synchronizes added and old removed-event buffers
+independently, including ghost copies for atom footprints that cross ownership
+boundaries. After every collective update it compares owned blocker counts,
+states, face ghosts, changed coordinates, and cached queries with serial and
+freshly reconstructed references at 1, 2, 4, and 8 ranks.
 
 Run them with:
 
@@ -111,11 +145,12 @@ The driver prints machine-readable counts, communication volume, peak RSS,
 per-stage maximum rank time, total time, and query throughput. It exits with an
 error if the expected accessibility result is not reproduced.
 
-## Remaining real-application handoff
+## Real-application handoff
 
-The actual KMC application is not present on this machine, so Phase 14 cannot
-name its atom-radius accessor or invoke its existing ghost synchronization.
-Those two application-specific calls are the remaining handoff. The adapter,
-distributed grid construction, classification, and site-loop query are already
-independent of the mock types and compile against the real SPPARKS base-class
-headers.
+The actual tKMC application is not present in this repository, so GasAccess
+cannot name its atom-radius accessor, select its synchronization point, or
+invoke its existing atom/event exchange. Those application-specific calls are
+the handoff. Grid construction, classification, the owning reversible event
+contract, collective repair, and site-loop queries are independent of the mock
+types. The SPPARKS field adapter also compiles directly against an available
+real SPPARKS source tree.

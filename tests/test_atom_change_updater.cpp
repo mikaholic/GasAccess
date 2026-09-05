@@ -1,4 +1,5 @@
 #include "gasaccess/accessibility_query.hpp"
+#include "gasaccess/atom_change_event_buffer.hpp"
 #include "gasaccess/atom_change_updater.hpp"
 #include "gasaccess/atom_voxelizer.hpp"
 #include "gasaccess/exterior_classifier.hpp"
@@ -21,6 +22,7 @@ namespace {
 using gasaccess::AccessibilityRepairKind;
 using gasaccess::Atom;
 using gasaccess::AtomChangeBatch;
+using gasaccess::AtomChangeEventBuffer;
 using gasaccess::AtomChangeRepairMode;
 using gasaccess::AtomChangeUpdateResult;
 using gasaccess::AtomChangeUpdater;
@@ -434,6 +436,60 @@ void test_pure_direction_paths()
     REQUIRE(desorption.incremental.newly_gas_count == 1);
 }
 
+void test_owning_event_buffer_and_convenience_wrappers()
+{
+    auto grid_spec = make_grid_spec(5, 1, 1);
+    grid_spec.reservoir_faces = {};
+    grid_spec.reservoir_faces.x_low = true;
+    GasGrid gas_grid(grid_spec);
+    Atom old_atom{gas_grid.voxel_center({2, 0, 0}), 0.0};
+    Atom new_atom{gas_grid.voxel_center({1, 0, 0}), 0.0};
+    AtomVoxelizer(0.0).voxelize(gas_grid, {&old_atom, 1});
+    ExteriorClassifier{}.classify(gas_grid);
+
+    AtomChangeEventBuffer event_buffer;
+    event_buffer.reserve(2, 2);
+    event_buffer.record_move(old_atom, new_atom);
+    old_atom.position = gas_grid.voxel_center({4, 0, 0});
+    new_atom.position = gas_grid.voxel_center({4, 0, 0});
+    REQUIRE(event_buffer.added_atom_count() == 1);
+    REQUIRE(event_buffer.removed_atom_count() == 1);
+    REQUIRE(event_buffer.added_atoms().atoms[0].position.x == 1.5);
+    REQUIRE(event_buffer.removed_atoms().atoms[0].position.x == 2.5);
+
+    AtomChangeUpdater updater(0.0);
+    const auto move_result = updater.apply_atom_changes(
+        gas_grid,
+        event_buffer.atom_changes());
+    REQUIRE(move_result.repair_kind == AccessibilityRepairKind::Mixed);
+    REQUIRE(gas_grid.gas_state({1, 0, 0}) == GasState::Solid);
+    REQUIRE(gas_grid.gas_state({2, 0, 0}) == GasState::ClosedVoid);
+
+    const Atom moved_atom{gas_grid.voxel_center({1, 0, 0}), 0.0};
+    event_buffer.clear();
+    REQUIRE(event_buffer.empty());
+    event_buffer.record_desorption(moved_atom);
+    const auto desorption_result = updater.apply_desorption(
+        gas_grid,
+        event_buffer.removed_atoms());
+    REQUIRE(desorption_result.repair_kind == AccessibilityRepairKind::Opening);
+    REQUIRE(gas_grid.gas_state({4, 0, 0})
+        == GasState::OutsideAccessible);
+
+    const Atom deposited_atom{gas_grid.voxel_center({3, 0, 0}), 0.0};
+    event_buffer.clear();
+    event_buffer.record_deposition(deposited_atom);
+    const auto deposition_result = updater.apply_deposition(
+        gas_grid,
+        event_buffer.added_atoms());
+    REQUIRE(deposition_result.repair_kind == AccessibilityRepairKind::Closing);
+    REQUIRE(gas_grid.gas_state({3, 0, 0}) == GasState::Solid);
+
+    REQUIRE_THROWS_AS(
+        event_buffer.append({{nullptr, 1}, {nullptr, 0}}),
+        std::invalid_argument);
+}
+
 void test_deterministic_random_mixed_sequence()
 {
     const auto grid_spec = make_grid_spec(8, 6, 6);
@@ -569,6 +625,9 @@ int main()
              test_channel_swap_excludes_transient_changes();
          }},
         {"pure direction paths", []() { test_pure_direction_paths(); }},
+        {"owning event buffer and convenience wrappers", []() {
+             test_owning_event_buffer_and_convenience_wrappers();
+         }},
         {"deterministic random mixed sequence", []() {
              test_deterministic_random_mixed_sequence();
          }}

@@ -391,4 +391,20 @@ DistributedAtomChangeUpdater::apply_atom_changes(
     return result;
 }
 
+DistributedAtomChangeUpdateResult
+DistributedAtomChangeUpdater::apply_deposition(
+    DistributedGasGrid& gas_grid,
+    AtomView added_atoms)
+{
+    return apply_atom_changes(gas_grid, {added_atoms, {nullptr, 0}});
+}
+
+DistributedAtomChangeUpdateResult
+DistributedAtomChangeUpdater::apply_desorption(
+    DistributedGasGrid& gas_grid,
+    AtomView removed_atoms)
+{
+    return apply_atom_changes(gas_grid, {{nullptr, 0}, removed_atoms});
+}
+
 }  // namespace gasaccess

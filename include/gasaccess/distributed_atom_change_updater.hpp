@@ -62,6 +62,14 @@ public:
         DistributedGasGrid& gas_grid,
         const AtomChangeBatch& atom_changes);
 
+    // Collective convenience wrappers for pure event batches.
+    DistributedAtomChangeUpdateResult apply_deposition(
+        DistributedGasGrid& gas_grid,
+        AtomView added_atoms);
+    DistributedAtomChangeUpdateResult apply_desorption(
+        DistributedGasGrid& gas_grid,
+        AtomView removed_atoms);
+
 private:
     double precursor_radius_ = 0.0;
     AtomChangeRepairMode repair_mode_ = AtomChangeRepairMode::Incremental;

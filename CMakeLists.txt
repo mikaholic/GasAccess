@@ -10,6 +10,7 @@ project(
 add_library(gasaccess
     src/accessibility_query.cpp
     src/affected_region_repair.cpp
+    src/atom_change_event_buffer.cpp
     src/atom_change_updater.cpp
     src/atom_voxelizer.cpp
     src/deposition_updater.cpp
@@ -779,31 +780,43 @@ if(BUILD_TESTING)
                     PASS_REGULAR_EXPRESSION "acceptance=pass"
             )
 
-            foreach(repair_case IN ITEMS baseline best medium worst)
-                add_test(
-                    NAME gasaccess_efficiency_repair_${repair_case}_${mpi_rank_count}_ranks
-                    COMMAND
-                        ${MPIEXEC_EXECUTABLE}
-                        ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
-                        ${MPIEXEC_PREFLAGS}
-                        $<TARGET_FILE:gasaccess_mpi_efficiency_driver>
-                        --operation repair
-                        --case ${repair_case}
-                        --nx 96 --ny 24 --nz 32
-                        --min-measured-seconds 0
-                        --min-repetitions 1
-                        --max-repetitions 1
-                        --warmup-repetitions 0
-                        ${MPIEXEC_POSTFLAGS}
-                )
-                set_tests_properties(
-                    gasaccess_efficiency_repair_${repair_case}_${mpi_rank_count}_ranks
-                    PROPERTIES
-                        LABELS "benchmark;efficiency;mpi"
-                        PROCESSORS ${mpi_rank_count}
-                        TIMEOUT 120
-                        PASS_REGULAR_EXPRESSION "acceptance=pass"
-                )
+            foreach(change_kind IN ITEMS deposition desorption mixed)
+                foreach(repair_case IN ITEMS baseline best medium worst)
+                    if(change_kind STREQUAL "deposition")
+                        set(repair_test_name
+                            gasaccess_efficiency_repair_${repair_case}_${mpi_rank_count}_ranks
+                        )
+                    else()
+                        set(repair_test_name
+                            gasaccess_efficiency_repair_${change_kind}_${repair_case}_${mpi_rank_count}_ranks
+                        )
+                    endif()
+                    add_test(
+                        NAME ${repair_test_name}
+                        COMMAND
+                            ${MPIEXEC_EXECUTABLE}
+                            ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                            ${MPIEXEC_PREFLAGS}
+                            $<TARGET_FILE:gasaccess_mpi_efficiency_driver>
+                            --operation repair
+                            --change-kind ${change_kind}
+                            --case ${repair_case}
+                            --nx 96 --ny 24 --nz 32
+                            --min-measured-seconds 0
+                            --min-repetitions 1
+                            --max-repetitions 1
+                            --warmup-repetitions 0
+                            ${MPIEXEC_POSTFLAGS}
+                    )
+                    set_tests_properties(
+                        ${repair_test_name}
+                        PROPERTIES
+                            LABELS "benchmark;efficiency;mpi"
+                            PROCESSORS ${mpi_rank_count}
+                            TIMEOUT 120
+                            PASS_REGULAR_EXPRESSION "acceptance=pass"
+                    )
+                endforeach()
             endforeach()
         endforeach()
     endif()

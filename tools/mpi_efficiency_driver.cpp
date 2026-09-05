@@ -1,5 +1,5 @@
 #include "efficiency_fixture.hpp"
-#include "gasaccess/distributed_deposition_updater.hpp"
+#include "gasaccess/distributed_atom_change_updater.hpp"
 #include "gasaccess/distributed_exterior_classifier.hpp"
 #include "gasaccess/mpi_gas_grid.hpp"
 #include "gasaccess/spparks_adapter.hpp"
@@ -28,9 +28,12 @@
 namespace {
 
 using gasaccess::Atom;
+using gasaccess::AtomChangeBatch;
+using gasaccess::AtomChangeRepairMode;
 using gasaccess::AtomView;
-using gasaccess::DistributedDepositionUpdateResult;
-using gasaccess::DistributedDepositionUpdater;
+using gasaccess::AccessibilityRepairKind;
+using gasaccess::DistributedAtomChangeUpdateResult;
+using gasaccess::DistributedAtomChangeUpdater;
 using gasaccess::DistributedExteriorClassifier;
 using gasaccess::DistributedGasAccessibilityQuery;
 using gasaccess::DistributedGasGrid;
@@ -41,6 +44,7 @@ using gasaccess::Point3;
 using gasaccess::SpparksAdapterConfig;
 using gasaccess::SpparksAtomBuffer;
 using gasaccess::VoxelCoord;
+using gasaccess::testing::EfficiencyChangeKind;
 using gasaccess::testing::EfficiencyRepairCase;
 using gasaccess::testing::EfficiencyRepairFixture;
 using gasaccess::testing::MockScenario;
@@ -56,11 +60,12 @@ enum class Operation {
 struct Options {
     Operation operation = Operation::Repair;
     MockScenario scenario = MockScenario::MillionSlab;
+    EfficiencyChangeKind change_kind = EfficiencyChangeKind::Deposition;
     EfficiencyRepairCase repair_case = EfficiencyRepairCase::Worst;
     GridDimensions dimensions{128, 128, 128};
     double minimum_measured_seconds = 1.0;
     std::uint64_t minimum_repetitions = 10;
-    std::uint64_t maximum_repetitions = 1000000;
+    std::uint64_t maximum_repetitions = 100000000;
     std::uint64_t minimum_queries_per_rank = 1000000;
     std::uint64_t warmup_repetitions = 3;
     bool show_help = false;
@@ -101,18 +106,35 @@ struct Statistics {
 };
 
 struct RepairMetrics {
-    std::uint64_t global_visited = 0;
-    std::uint64_t global_closed = 0;
+    std::uint64_t global_blocker_count_changed = 0;
+    std::uint64_t global_newly_solid = 0;
+    std::uint64_t global_newly_gas = 0;
     std::uint64_t global_changed = 0;
-    std::uint64_t participating_ranks = 0;
-    std::uint64_t closing_ranks = 0;
-    std::uint64_t communication_rounds = 0;
-    std::uint64_t sent_frontier_entries = 0;
-    std::uint64_t received_frontier_entries = 0;
-    std::uint64_t minimum_rank_visited = 0;
-    std::uint64_t maximum_rank_visited = 0;
+    std::uint64_t closing_visited = 0;
+    std::uint64_t opening_visited = 0;
+    std::uint64_t closed = 0;
+    std::uint64_t opened = 0;
+    std::uint64_t closing_participating_ranks = 0;
+    std::uint64_t opening_participating_ranks = 0;
+    std::uint64_t closing_communication_rounds = 0;
+    std::uint64_t opening_communication_rounds = 0;
+    std::uint64_t closing_sent_frontier_entries = 0;
+    std::uint64_t closing_received_frontier_entries = 0;
+    std::uint64_t opening_sent_frontier_entries = 0;
+    std::uint64_t opening_received_frontier_entries = 0;
+    std::uint64_t minimum_rank_closing_visited = 0;
+    std::uint64_t maximum_rank_closing_visited = 0;
+    std::uint64_t minimum_rank_opening_visited = 0;
+    std::uint64_t maximum_rank_opening_visited = 0;
     std::uint64_t minimum_rank_closed = 0;
     std::uint64_t maximum_rank_closed = 0;
+    std::uint64_t minimum_rank_opened = 0;
+    std::uint64_t maximum_rank_opened = 0;
+
+    std::uint64_t visited() const noexcept
+    {
+        return closing_visited + opening_visited;
+    }
 };
 
 struct InitializationTimes {
@@ -196,6 +218,10 @@ Options parse_options(int argument_count, char** arguments)
         } else if (argument == "--scenario") {
             options.scenario = gasaccess::testing::parse_mock_scenario(
                 require_value());
+        } else if (argument == "--change-kind") {
+            options.change_kind =
+                gasaccess::testing::parse_efficiency_change_kind(
+                    require_value());
         } else if (argument == "--case") {
             options.repair_case =
                 gasaccess::testing::parse_efficiency_repair_case(require_value());
@@ -241,6 +267,7 @@ void print_help()
         << "Usage: gasaccess_mpi_efficiency_driver [options]\n"
         << "  --operation initialization|query|repair\n"
         << "  --scenario open-trench|sealed-trench|million-slab\n"
+        << "  --change-kind deposition|desorption|mixed\n"
         << "  --case baseline|best|medium|worst\n"
         << "  --nx N --ny N --nz N\n"
         << "  --min-measured-seconds S\n"
@@ -367,7 +394,81 @@ MpiDecompositionSpec make_repair_decomposition(
     return decomposition;
 }
 
+bool voxel_coord_less(
+    const VoxelCoord& lhs,
+    const VoxelCoord& rhs) noexcept
+{
+    if (lhs.z != rhs.z) {
+        return lhs.z < rhs.z;
+    }
+    if (lhs.y != rhs.y) {
+        return lhs.y < rhs.y;
+    }
+    return lhs.x < rhs.x;
+}
+
+bool in_region(
+    const VoxelCoord& coordinate,
+    const VoxelCoord& begin,
+    const VoxelCoord& end) noexcept
+{
+    return coordinate.x >= begin.x && coordinate.x < end.x
+        && coordinate.y >= begin.y && coordinate.y < end.y
+        && coordinate.z >= begin.z && coordinate.z < end.z;
+}
+
+GasState initial_repair_state(
+    EfficiencyChangeKind change_kind,
+    EfficiencyRepairCase repair_case,
+    const EfficiencyRepairFixture& fixture,
+    const VoxelCoord& coordinate)
+{
+    if (gasaccess::testing::is_efficiency_fixture_solid(
+            change_kind, repair_case, fixture, coordinate)) {
+        return GasState::Solid;
+    }
+    const bool single_closed_cavity =
+        change_kind == EfficiencyChangeKind::Desorption
+        || (change_kind == EfficiencyChangeKind::Deposition
+            && repair_case == EfficiencyRepairCase::DetectionBaseline);
+    if (single_closed_cavity
+        && in_region(
+            coordinate,
+            fixture.opening_cavity_begin,
+            fixture.opening_cavity_end)) {
+        return GasState::ClosedVoid;
+    }
+    if (change_kind == EfficiencyChangeKind::Mixed
+        && repair_case != EfficiencyRepairCase::DetectionBaseline
+        && in_region(
+            coordinate,
+            fixture.opening_cavity_begin,
+            fixture.opening_cavity_end)) {
+        return GasState::ClosedVoid;
+    }
+    return GasState::OutsideAccessible;
+}
+
+gasaccess::VoxelBlockerCount initial_blocker_count(
+    EfficiencyChangeKind change_kind,
+    EfficiencyRepairCase repair_case,
+    const EfficiencyRepairFixture& fixture,
+    const VoxelCoord& coordinate)
+{
+    if (fixture.has_removed_atom && coordinate == fixture.removed_voxel) {
+        return fixture.initial_removed_blocker_count;
+    }
+    if (fixture.has_added_atom && coordinate == fixture.added_voxel) {
+        return fixture.initial_added_blocker_count;
+    }
+    return gasaccess::testing::is_efficiency_fixture_solid(
+               change_kind, repair_case, fixture, coordinate)
+        ? gasaccess::VoxelBlockerCount{1}
+        : gasaccess::VoxelBlockerCount{0};
+}
+
 std::unique_ptr<DistributedGasGrid> prepare_repair_grid(
+    EfficiencyChangeKind change_kind,
     EfficiencyRepairCase repair_case,
     const EfficiencyRepairFixture& fixture,
     int rank,
@@ -382,11 +483,21 @@ std::unique_ptr<DistributedGasGrid> prepare_repair_grid(
             for (auto x = range.begin.x; x < range.end.x; ++x) {
                 const VoxelCoord coordinate{x, y, z};
                 if (gasaccess::testing::is_efficiency_fixture_solid(
-                        repair_case, fixture, coordinate)) {
+                        change_kind, repair_case, fixture, coordinate)) {
                     grid->set_owned_gas_state(coordinate, GasState::Solid);
                 }
             }
         }
+    }
+    if (fixture.has_added_atom && grid->owns(fixture.added_voxel)) {
+        grid->set_owned_blocker_count(
+            fixture.added_voxel,
+            fixture.initial_added_blocker_count);
+    }
+    if (fixture.has_removed_atom && grid->owns(fixture.removed_voxel)) {
+        grid->set_owned_blocker_count(
+            fixture.removed_voxel,
+            fixture.initial_removed_blocker_count);
     }
     DistributedExteriorClassifier().classify(*grid);
     const auto global_closed = allreduce_sum(
@@ -397,144 +508,393 @@ std::unique_ptr<DistributedGasGrid> prepare_repair_grid(
     return grid;
 }
 
+void require_collectively(bool local_condition, const char* message)
+{
+    if (allreduce_sum(local_condition ? 0U : 1U) != 0) {
+        throw std::logic_error(message);
+    }
+}
+
+bool is_sorted_unique(const std::vector<VoxelCoord>& coordinates)
+{
+    return std::is_sorted(
+               coordinates.begin(), coordinates.end(), voxel_coord_less)
+        && std::adjacent_find(coordinates.begin(), coordinates.end())
+            == coordinates.end();
+}
+
+std::uint64_t expected_blocker_changes(
+    EfficiencyChangeKind change_kind,
+    EfficiencyRepairCase repair_case) noexcept
+{
+    if (change_kind == EfficiencyChangeKind::Mixed) {
+        return repair_case == EfficiencyRepairCase::DetectionBaseline ? 0U : 2U;
+    }
+    return 1U;
+}
+
+AccessibilityRepairKind expected_incremental_repair_kind(
+    EfficiencyChangeKind change_kind,
+    EfficiencyRepairCase repair_case) noexcept
+{
+    if (repair_case == EfficiencyRepairCase::DetectionBaseline) {
+        return AccessibilityRepairKind::None;
+    }
+    switch (change_kind) {
+    case EfficiencyChangeKind::Deposition:
+        return AccessibilityRepairKind::Closing;
+    case EfficiencyChangeKind::Desorption:
+        return AccessibilityRepairKind::Opening;
+    case EfficiencyChangeKind::Mixed:
+        return AccessibilityRepairKind::Mixed;
+    }
+    return AccessibilityRepairKind::None;
+}
+
 RepairMetrics validate_repair_result(
+    EfficiencyChangeKind change_kind,
     EfficiencyRepairCase repair_case,
     const EfficiencyRepairFixture& fixture,
     const DistributedGasGrid& grid,
-    const DistributedDepositionUpdateResult& result,
-    int process_count)
+    const DistributedAtomChangeUpdateResult& result,
+    int process_count,
+    bool incremental)
 {
     const bool baseline = repair_case == EfficiencyRepairCase::DetectionBaseline;
     if (baseline) {
-        if (result.geometry_changed() || result.used_distributed_repair()) {
+        if (result.geometry_changed()
+            || result.used_full_reclassification()
+            || result.used_distributed_closing_repair()
+            || result.used_distributed_opening_repair()
+            || result.repair_kind != AccessibilityRepairKind::None) {
             throw std::logic_error("detection baseline unexpectedly changed geometry");
         }
+    } else if (incremental) {
+        if (!result.geometry_changed()
+            || result.used_full_reclassification()
+            || result.repair_kind
+                != expected_incremental_repair_kind(change_kind, repair_case)
+            || result.used_distributed_closing_repair()
+                != (fixture.expected_newly_solid_count != 0)
+            || result.used_distributed_opening_repair()
+                != (fixture.expected_newly_gas_count != 0)) {
+            throw std::logic_error(
+                "repair benchmark did not use the expected incremental passes");
+        }
     } else if (!result.geometry_changed()
-               || !result.used_distributed_repair()
-               || result.used_full_reclassification()) {
-        throw std::logic_error("repair benchmark did not use incremental repair");
+               || !result.used_full_reclassification()
+               || result.repair_kind
+                   != AccessibilityRepairKind::FullReclassification
+               || result.used_distributed_closing_repair()
+               || result.used_distributed_opening_repair()) {
+        throw std::logic_error(
+            "repair benchmark did not use forced full reclassification");
+    }
+
+    if (result.global_blocker_count_changed_voxel_count
+            != expected_blocker_changes(change_kind, repair_case)
+        || result.global_newly_solid_count
+            != fixture.expected_newly_solid_count
+        || result.global_newly_gas_count != fixture.expected_newly_gas_count) {
+        throw std::logic_error("repair benchmark occupancy counts are incorrect");
     }
 
     RepairMetrics metrics{};
-    metrics.global_visited = allreduce_sum(
-        result.local_repair_visited_voxel_count);
-    metrics.global_closed = allreduce_sum(
-        result.local_repair_closed_voxel_count);
+    metrics.global_blocker_count_changed =
+        result.global_blocker_count_changed_voxel_count;
+    metrics.global_newly_solid = result.global_newly_solid_count;
+    metrics.global_newly_gas = result.global_newly_gas_count;
     metrics.global_changed = allreduce_sum(
         static_cast<std::uint64_t>(result.changed_owned_voxel_coords.size()));
-    metrics.participating_ranks = allreduce_sum(
-        result.local_repair_visited_voxel_count == 0 ? 0U : 1U);
-    metrics.closing_ranks = allreduce_sum(
-        result.local_repair_closed_voxel_count == 0 ? 0U : 1U);
-    metrics.communication_rounds = allreduce_max(
-        result.repair_communication_round_count);
-    metrics.sent_frontier_entries = allreduce_sum(
-        result.sent_frontier_entry_count);
-    metrics.received_frontier_entries = allreduce_sum(
-        result.received_frontier_entry_count);
-    metrics.minimum_rank_visited = allreduce_min(
-        result.local_repair_visited_voxel_count);
-    metrics.maximum_rank_visited = allreduce_max(
-        result.local_repair_visited_voxel_count);
+    metrics.closing_visited = allreduce_sum(
+        result.local_closing_visited_voxel_count);
+    metrics.opening_visited = allreduce_sum(
+        result.local_opening_visited_voxel_count);
+    metrics.closed = allreduce_sum(
+        result.local_repair_closed_voxel_count);
+    metrics.opened = allreduce_sum(
+        result.local_repair_opened_voxel_count);
+    metrics.closing_participating_ranks = allreduce_max(
+        result.closing_participating_rank_count);
+    metrics.opening_participating_ranks = allreduce_max(
+        result.opening_participating_rank_count);
+    metrics.closing_communication_rounds = allreduce_max(
+        result.closing_communication_round_count);
+    metrics.opening_communication_rounds = allreduce_max(
+        result.opening_communication_round_count);
+    metrics.closing_sent_frontier_entries = allreduce_sum(
+        result.closing_sent_frontier_entry_count);
+    metrics.closing_received_frontier_entries = allreduce_sum(
+        result.closing_received_frontier_entry_count);
+    metrics.opening_sent_frontier_entries = allreduce_sum(
+        result.opening_sent_frontier_entry_count);
+    metrics.opening_received_frontier_entries = allreduce_sum(
+        result.opening_received_frontier_entry_count);
+    metrics.minimum_rank_closing_visited = allreduce_min(
+        result.local_closing_visited_voxel_count);
+    metrics.maximum_rank_closing_visited = allreduce_max(
+        result.local_closing_visited_voxel_count);
+    metrics.minimum_rank_opening_visited = allreduce_min(
+        result.local_opening_visited_voxel_count);
+    metrics.maximum_rank_opening_visited = allreduce_max(
+        result.local_opening_visited_voxel_count);
     metrics.minimum_rank_closed = allreduce_min(
         result.local_repair_closed_voxel_count);
     metrics.maximum_rank_closed = allreduce_max(
         result.local_repair_closed_voxel_count);
+    metrics.minimum_rank_opened = allreduce_min(
+        result.local_repair_opened_voxel_count);
+    metrics.maximum_rank_opened = allreduce_max(
+        result.local_repair_opened_voxel_count);
 
-    const auto expected_final_closed = fixture.expected_initial_closed_count
-        + fixture.expected_newly_closed_count;
     const auto global_final_closed = allreduce_sum(
         grid.owned_gas_state_count(GasState::ClosedVoid));
-    if (global_final_closed != expected_final_closed
-        || metrics.global_closed != fixture.expected_newly_closed_count
-        || metrics.sent_frontier_entries != metrics.received_frontier_entries) {
+    if (global_final_closed != fixture.expected_final_closed_count
+        || metrics.global_changed != fixture.expected_changed_count) {
         throw std::logic_error("repair benchmark state or communication mismatch");
     }
-    const auto expected_changed = baseline
-        ? std::uint64_t{0}
-        : fixture.expected_newly_closed_count + 1U;
-    if (metrics.global_changed != expected_changed) {
-        throw std::logic_error("repair benchmark changed-coordinate count is wrong");
+    require_collectively(
+        is_sorted_unique(result.changed_owned_voxel_coords),
+        "repair benchmark changed coordinates are not sorted and unique");
+
+    if (incremental
+        && (metrics.closed != fixture.expected_newly_closed_count
+            || metrics.opened != fixture.expected_newly_opened_count
+            || metrics.closing_sent_frontier_entries
+                != metrics.closing_received_frontier_entries
+            || metrics.opening_sent_frontier_entries
+                != metrics.opening_received_frontier_entries)) {
+        throw std::logic_error("repair benchmark traversal metrics are incorrect");
     }
     if (!global_query(grid, fixture.outside_probe)) {
         throw std::logic_error("repair benchmark closed the outside control probe");
     }
-    if (!baseline && global_query(grid, fixture.cavity_probe)) {
-        throw std::logic_error("repair benchmark cavity remained accessible");
+    if (!baseline && fixture.expected_newly_closed_count != 0
+        && global_query(grid, fixture.closing_probe)) {
+        throw std::logic_error("repair benchmark closing cavity remained accessible");
     }
-    if (repair_case == EfficiencyRepairCase::Best
-        && (metrics.participating_ranks != 1 || metrics.closing_ranks != 1)) {
-        throw std::logic_error("best repair escaped its owning rank");
+    if (!baseline && fixture.expected_newly_opened_count != 0
+        && !global_query(grid, fixture.opening_probe)) {
+        throw std::logic_error("repair benchmark opening cavity remained closed");
     }
-    if (repair_case == EfficiencyRepairCase::Worst
-        && (metrics.participating_ranks
-                != static_cast<std::uint64_t>(process_count)
-            || metrics.closing_ranks
-                != static_cast<std::uint64_t>(process_count)
-            || metrics.minimum_rank_visited == 0
-            || metrics.minimum_rank_closed == 0)) {
-        throw std::logic_error(
-            "worst repair did not visit and close voxels on every MPI rank");
+
+    if (!incremental) {
+        return metrics;
+    }
+
+    if (repair_case == EfficiencyRepairCase::Best) {
+        if (fixture.expected_newly_closed_count != 0
+            && metrics.closing_participating_ranks != 1) {
+            throw std::logic_error("best closing repair escaped its owning rank");
+        }
+        if (fixture.expected_newly_opened_count != 0
+            && metrics.opening_participating_ranks != 1) {
+            throw std::logic_error("best opening repair escaped its owning rank");
+        }
+    }
+    if (repair_case == EfficiencyRepairCase::Worst) {
+        const auto rank_count = static_cast<std::uint64_t>(process_count);
+        if (fixture.expected_newly_closed_count != 0
+            && (metrics.closing_participating_ranks != rank_count
+                || metrics.minimum_rank_closing_visited == 0
+                || metrics.minimum_rank_closed == 0)) {
+            throw std::logic_error(
+                "worst closing repair did not traverse every MPI rank");
+        }
+        if (fixture.expected_newly_opened_count != 0
+            && (metrics.opening_participating_ranks != rank_count
+                || metrics.minimum_rank_opening_visited == 0
+                || metrics.minimum_rank_opened == 0)) {
+            throw std::logic_error(
+                "worst opening repair did not traverse every MPI rank");
+        }
+        const auto& dimensions = fixture.grid_spec.dimensions;
+        const auto total_voxels = dimensions.x * dimensions.y * dimensions.z;
+        if (change_kind == EfficiencyChangeKind::Desorption
+            && fixture.expected_newly_opened_count <= total_voxels / 2U) {
+            throw std::logic_error(
+                "worst desorption fixture does not open more than half the grid");
+        }
+        if (change_kind == EfficiencyChangeKind::Mixed
+            && (fixture.expected_newly_closed_count
+                    + fixture.expected_newly_opened_count
+                <= total_voxels / 2U)) {
+            throw std::logic_error(
+                "worst mixed fixture does not affect more than half the grid");
+        }
     }
     return metrics;
 }
 
-double run_repair_once(
-    const Options& options,
-    int rank,
-    int process_count,
-    RepairMetrics* metrics)
+void compare_repair_results(
+    const DistributedGasGrid& incremental_grid,
+    const DistributedGasGrid& full_grid,
+    const DistributedAtomChangeUpdateResult& incremental_result,
+    const DistributedAtomChangeUpdateResult& full_result)
 {
-    const auto fixture = gasaccess::testing::make_efficiency_repair_fixture(
-        options.repair_case, options.dimensions, process_count);
-    auto grid = prepare_repair_grid(
-        options.repair_case, fixture, rank, process_count);
-    const auto expected_before =
-        options.repair_case != EfficiencyRepairCase::DetectionBaseline;
-    if (global_query(*grid, fixture.cavity_probe) != expected_before) {
-        throw std::logic_error("repair fixture has wrong initial accessibility");
+    require_collectively(
+        incremental_result.changed_owned_voxel_coords
+            == full_result.changed_owned_voxel_coords,
+        "incremental and full changed-coordinate lists differ");
+    std::uint64_t local_mismatch_count = 0;
+    const auto& range = incremental_grid.owned_range();
+    for (auto z = range.begin.z; z < range.end.z; ++z) {
+        for (auto y = range.begin.y; y < range.end.y; ++y) {
+            for (auto x = range.begin.x; x < range.end.x; ++x) {
+                const VoxelCoord coordinate{x, y, z};
+                if (incremental_grid.gas_state(coordinate)
+                        != full_grid.gas_state(coordinate)
+                    || incremental_grid.owned_blocker_count(coordinate)
+                        != full_grid.owned_blocker_count(coordinate)) {
+                    ++local_mismatch_count;
+                }
+            }
+        }
     }
-
-    const Atom deposited_atom{grid->voxel_center(fixture.opening), 0.0};
-    DistributedDepositionUpdater updater(0.0);
-    check_mpi(MPI_Barrier(MPI_COMM_WORLD), "MPI_Barrier(repair timing)");
-    const double start = MPI_Wtime();
-    const auto result = updater.apply_deposition(
-        *grid, AtomView{&deposited_atom, 1});
-    const double local_elapsed = MPI_Wtime() - start;
-    const double elapsed = allreduce_max(local_elapsed);
-    const auto actual_metrics = validate_repair_result(
-        options.repair_case, fixture, *grid, result, process_count);
-    if (metrics != nullptr) {
-        *metrics = actual_metrics;
+    if (allreduce_sum(local_mismatch_count) != 0) {
+        throw std::logic_error(
+            "incremental and full repair grids do not match");
     }
-    return elapsed;
 }
 
-double run_prepared_detection_baseline_once(
+void restore_repair_grid(
+    EfficiencyChangeKind change_kind,
+    EfficiencyRepairCase repair_case,
     const EfficiencyRepairFixture& fixture,
     DistributedGasGrid& grid,
-    DistributedDepositionUpdater& updater,
-    const Atom& deposited_atom,
+    const DistributedAtomChangeUpdateResult& result)
+{
+    const auto restore_coordinate = [&](const VoxelCoord& coordinate) {
+        if (!grid.owns(coordinate)) {
+            return;
+        }
+        grid.set_owned_blocker_count(
+            coordinate,
+            initial_blocker_count(
+                change_kind, repair_case, fixture, coordinate));
+        grid.set_owned_gas_state(
+            coordinate,
+            initial_repair_state(
+                change_kind, repair_case, fixture, coordinate));
+    };
+    for (const auto& coordinate : result.changed_owned_voxel_coords) {
+        restore_coordinate(coordinate);
+    }
+    if (fixture.has_added_atom) {
+        restore_coordinate(fixture.added_voxel);
+    }
+    if (fixture.has_removed_atom) {
+        restore_coordinate(fixture.removed_voxel);
+    }
+    if (result.geometry_changed()) {
+        grid.exchange_ghost_states();
+    }
+}
+
+struct TimedRepairResult {
+    double elapsed_seconds = 0.0;
+    DistributedAtomChangeUpdateResult update{};
+};
+
+TimedRepairResult time_atom_changes(
+    DistributedGasGrid& grid,
+    DistributedAtomChangeUpdater& updater,
+    const AtomChangeBatch& changes)
+{
+    check_mpi(MPI_Barrier(MPI_COMM_WORLD), "MPI_Barrier(repair timing)");
+    const double start = MPI_Wtime();
+    auto result = updater.apply_atom_changes(grid, changes);
+    const auto elapsed = allreduce_max(MPI_Wtime() - start);
+    return {elapsed, std::move(result)};
+}
+
+struct RepairPairSample {
+    double incremental_seconds = 0.0;
+    double full_seconds = 0.0;
+};
+
+RepairPairSample run_repair_pair(
+    const Options& options,
+    const EfficiencyRepairFixture& fixture,
+    DistributedGasGrid& incremental_grid,
+    DistributedGasGrid& full_grid,
+    DistributedAtomChangeUpdater& incremental_updater,
+    DistributedAtomChangeUpdater& full_updater,
+    const AtomChangeBatch& changes,
     int process_count,
+    bool full_first,
+    bool validate,
     RepairMetrics* metrics)
 {
-    check_mpi(
-        MPI_Barrier(MPI_COMM_WORLD), "MPI_Barrier(baseline timing)");
-    const double start = MPI_Wtime();
-    const auto result = updater.apply_deposition(
-        grid, AtomView{&deposited_atom, 1});
-    const double elapsed = allreduce_max(MPI_Wtime() - start);
-    const auto actual_metrics = validate_repair_result(
-        EfficiencyRepairCase::DetectionBaseline,
+    TimedRepairResult incremental{};
+    TimedRepairResult full{};
+    if (full_first) {
+        full = time_atom_changes(full_grid, full_updater, changes);
+        incremental = time_atom_changes(
+            incremental_grid, incremental_updater, changes);
+    } else {
+        incremental = time_atom_changes(
+            incremental_grid, incremental_updater, changes);
+        full = time_atom_changes(full_grid, full_updater, changes);
+    }
+
+    if (validate) {
+        const auto actual_metrics = validate_repair_result(
+            options.change_kind,
+            options.repair_case,
+            fixture,
+            incremental_grid,
+            incremental.update,
+            process_count,
+            true);
+        (void)validate_repair_result(
+            options.change_kind,
+            options.repair_case,
+            fixture,
+            full_grid,
+            full.update,
+            process_count,
+            false);
+        compare_repair_results(
+            incremental_grid,
+            full_grid,
+            incremental.update,
+            full.update);
+        if (metrics != nullptr) {
+            *metrics = actual_metrics;
+        }
+    }
+
+    restore_repair_grid(
+        options.change_kind,
+        options.repair_case,
+        fixture,
+        incremental_grid,
+        incremental.update);
+    restore_repair_grid(
+        options.change_kind,
+        options.repair_case,
+        fixture,
+        full_grid,
+        full.update);
+    return {incremental.elapsed_seconds, full.elapsed_seconds};
+}
+
+double run_single_repair_measurement(
+    const Options& options,
+    const EfficiencyRepairFixture& fixture,
+    DistributedGasGrid& grid,
+    DistributedAtomChangeUpdater& updater,
+    const AtomChangeBatch& changes)
+{
+    auto timed = time_atom_changes(grid, updater, changes);
+    restore_repair_grid(
+        options.change_kind,
+        options.repair_case,
         fixture,
         grid,
-        result,
-        process_count);
-    if (metrics != nullptr) {
-        *metrics = actual_metrics;
-    }
-    return elapsed;
+        timed.update);
+    return timed.elapsed_seconds;
 }
 
 void print_statistics(const Statistics& statistics)
@@ -549,92 +909,257 @@ void print_statistics(const Statistics& statistics)
               << statistics.standard_deviation() << '\n';
 }
 
+void print_prefixed_statistics(
+    const char* prefix,
+    const Statistics& statistics)
+{
+    std::cout << prefix << "repetition_count=" << statistics.count << '\n'
+              << prefix << "total_measured_seconds=" << statistics.sum << '\n'
+              << prefix << "average_seconds=" << statistics.average() << '\n'
+              << prefix << "minimum_seconds="
+              << (statistics.count == 0 ? 0.0 : statistics.minimum) << '\n'
+              << prefix << "maximum_seconds=" << statistics.maximum << '\n'
+              << prefix << "standard_deviation_seconds="
+              << statistics.standard_deviation() << '\n';
+}
+
 int run_repair(const Options& options, int rank, int process_count)
 {
-    Statistics statistics{};
+    const auto fixture = gasaccess::testing::make_efficiency_repair_fixture(
+        options.change_kind,
+        options.repair_case,
+        options.dimensions,
+        process_count);
+    auto incremental_grid = prepare_repair_grid(
+        options.change_kind,
+        options.repair_case,
+        fixture,
+        rank,
+        process_count);
+    auto full_grid = prepare_repair_grid(
+        options.change_kind,
+        options.repair_case,
+        fixture,
+        rank,
+        process_count);
+
+    if (!global_query(*incremental_grid, fixture.outside_probe)) {
+        throw std::logic_error("repair fixture outside probe is not accessible");
+    }
+    if (options.repair_case != EfficiencyRepairCase::DetectionBaseline
+        && fixture.expected_newly_closed_count != 0
+        && !global_query(*incremental_grid, fixture.closing_probe)) {
+        throw std::logic_error("repair fixture closing probe is not accessible");
+    }
+    if (options.repair_case != EfficiencyRepairCase::DetectionBaseline
+        && fixture.expected_newly_opened_count != 0
+        && global_query(*incremental_grid, fixture.opening_probe)) {
+        throw std::logic_error("repair fixture opening probe is not closed");
+    }
+
+    std::vector<Atom> added_atoms;
+    std::vector<Atom> removed_atoms;
+    if (fixture.has_added_atom) {
+        added_atoms.push_back({
+            incremental_grid->voxel_center(fixture.added_voxel), 0.0});
+    }
+    if (fixture.has_removed_atom) {
+        removed_atoms.push_back({
+            incremental_grid->voxel_center(fixture.removed_voxel), 0.0});
+    }
+    const AtomChangeBatch changes{
+        {added_atoms.data(), added_atoms.size()},
+        {removed_atoms.data(), removed_atoms.size()}};
+    DistributedAtomChangeUpdater incremental_updater(0.0);
+    DistributedAtomChangeUpdater full_updater(
+        0.0, AtomChangeRepairMode::FullReclassification);
+
+    std::uint64_t sequence = 0;
     RepairMetrics metrics{};
-    if (options.repair_case == EfficiencyRepairCase::DetectionBaseline) {
-        const auto fixture = gasaccess::testing::make_efficiency_repair_fixture(
-            options.repair_case, options.dimensions, process_count);
-        auto grid = prepare_repair_grid(
-            options.repair_case, fixture, rank, process_count);
-        const Atom deposited_atom{grid->voxel_center(fixture.opening), 0.0};
-        DistributedDepositionUpdater updater(0.0);
-        for (std::uint64_t warmup = 0;
-             warmup < options.warmup_repetitions;
-             ++warmup) {
-            (void)run_prepared_detection_baseline_once(
+    bool validated = false;
+    for (std::uint64_t warmup = 0;
+         warmup < options.warmup_repetitions;
+         ++warmup, ++sequence) {
+        (void)run_repair_pair(
+            options,
+            fixture,
+            *incremental_grid,
+            *full_grid,
+            incremental_updater,
+            full_updater,
+            changes,
+            process_count,
+            sequence % 2U != 0,
+            !validated,
+            &metrics);
+        validated = true;
+    }
+
+    Statistics incremental_statistics{};
+    Statistics full_statistics{};
+    if (!validated) {
+        const auto sample = run_repair_pair(
+            options,
+            fixture,
+            *incremental_grid,
+            *full_grid,
+            incremental_updater,
+            full_updater,
+            changes,
+            process_count,
+            sequence % 2U != 0,
+            true,
+            &metrics);
+        ++sequence;
+        incremental_statistics.add(sample.incremental_seconds);
+        full_statistics.add(sample.full_seconds);
+        validated = true;
+    }
+
+    const auto needs_more = [&](const Statistics& statistics) {
+        return statistics.count < options.minimum_repetitions
+            || statistics.sum < options.minimum_measured_seconds;
+    };
+    while ((needs_more(incremental_statistics)
+            || needs_more(full_statistics))
+           && (incremental_statistics.count < options.maximum_repetitions
+               || full_statistics.count < options.maximum_repetitions)) {
+        const bool run_incremental = needs_more(incremental_statistics)
+            && incremental_statistics.count < options.maximum_repetitions;
+        const bool run_full = needs_more(full_statistics)
+            && full_statistics.count < options.maximum_repetitions;
+        if (!run_incremental && !run_full) {
+            break;
+        }
+        const auto measure_incremental = [&]() {
+            incremental_statistics.add(run_single_repair_measurement(
+                options,
                 fixture,
-                *grid,
-                updater,
-                deposited_atom,
-                process_count,
-                nullptr);
-        }
-        while ((statistics.count < options.minimum_repetitions
-                || statistics.sum < options.minimum_measured_seconds)
-               && statistics.count < options.maximum_repetitions) {
-            statistics.add(run_prepared_detection_baseline_once(
+                *incremental_grid,
+                incremental_updater,
+                changes));
+        };
+        const auto measure_full = [&]() {
+            full_statistics.add(run_single_repair_measurement(
+                options,
                 fixture,
-                *grid,
-                updater,
-                deposited_atom,
-                process_count,
-                &metrics));
+                *full_grid,
+                full_updater,
+                changes));
+        };
+        if (run_incremental && run_full && sequence % 2U != 0) {
+            measure_full();
+            measure_incremental();
+        } else {
+            if (run_incremental) {
+                measure_incremental();
+            }
+            if (run_full) {
+                measure_full();
+            }
         }
-    } else {
-        for (std::uint64_t warmup = 0;
-             warmup < options.warmup_repetitions;
-             ++warmup) {
-            (void)run_repair_once(options, rank, process_count, nullptr);
-        }
-        while ((statistics.count < options.minimum_repetitions
-                || statistics.sum < options.minimum_measured_seconds)
-               && statistics.count < options.maximum_repetitions) {
-            statistics.add(run_repair_once(
-                options, rank, process_count, &metrics));
-        }
+        ++sequence;
+    }
+    if (incremental_statistics.count < options.minimum_repetitions
+        || incremental_statistics.sum < options.minimum_measured_seconds
+        || full_statistics.sum < options.minimum_measured_seconds) {
+        throw std::runtime_error(
+            "maximum repetitions reached before timing requirements");
     }
     const auto global_peak_rss = allreduce_sum(peak_rss_bytes());
 
     if (rank == 0) {
-        const auto fixture = gasaccess::testing::make_efficiency_repair_fixture(
-            options.repair_case, options.dimensions, process_count);
-        std::cout << "repair_case="
+        std::cout << "change_kind="
+                  << gasaccess::testing::efficiency_change_kind_name(
+                         options.change_kind)
+                  << '\n'
+                  << "repair_case="
                   << gasaccess::testing::efficiency_repair_case_name(
                          options.repair_case)
                   << '\n'
+                  << "expected_blocker_count_changed_voxel_count="
+                  << expected_blocker_changes(
+                         options.change_kind, options.repair_case)
+                  << '\n'
+                  << "expected_newly_solid_voxel_count="
+                  << fixture.expected_newly_solid_count << '\n'
+                  << "expected_newly_gas_voxel_count="
+                  << fixture.expected_newly_gas_count << '\n'
                   << "expected_newly_closed_voxel_count="
                   << fixture.expected_newly_closed_count << '\n'
-                  << "repair_visited_voxel_count=" << metrics.global_visited
+                  << "expected_newly_opened_voxel_count="
+                  << fixture.expected_newly_opened_count << '\n'
+                  << "blocker_count_changed_voxel_count="
+                  << metrics.global_blocker_count_changed << '\n'
+                  << "newly_solid_voxel_count=" << metrics.global_newly_solid
                   << '\n'
-                  << "repair_closed_voxel_count=" << metrics.global_closed
+                  << "newly_gas_voxel_count=" << metrics.global_newly_gas
                   << '\n'
+                  << "repair_visited_voxel_count=" << metrics.visited()
+                  << '\n'
+                  << "closing_visited_voxel_count=" << metrics.closing_visited
+                  << '\n'
+                  << "opening_visited_voxel_count=" << metrics.opening_visited
+                  << '\n'
+                  << "repair_closed_voxel_count=" << metrics.closed << '\n'
+                  << "repair_opened_voxel_count=" << metrics.opened << '\n'
                   << "changed_voxel_count=" << metrics.global_changed << '\n'
-                  << "participating_rank_count=" << metrics.participating_ranks
+                  << "closing_participating_rank_count="
+                  << metrics.closing_participating_ranks
                   << '\n'
-                  << "closing_rank_count=" << metrics.closing_ranks << '\n'
-                  << "repair_communication_round_count="
-                  << metrics.communication_rounds << '\n'
-                  << "sent_frontier_entry_count="
-                  << metrics.sent_frontier_entries << '\n'
-                  << "received_frontier_entry_count="
-                  << metrics.received_frontier_entries << '\n'
-                  << "minimum_rank_visited_voxel_count="
-                  << metrics.minimum_rank_visited << '\n'
-                  << "maximum_rank_visited_voxel_count="
-                  << metrics.maximum_rank_visited << '\n'
+                  << "opening_participating_rank_count="
+                  << metrics.opening_participating_ranks << '\n'
+                  << "closing_communication_round_count="
+                  << metrics.closing_communication_rounds << '\n'
+                  << "opening_communication_round_count="
+                  << metrics.opening_communication_rounds << '\n'
+                  << "closing_sent_frontier_entry_count="
+                  << metrics.closing_sent_frontier_entries << '\n'
+                  << "closing_received_frontier_entry_count="
+                  << metrics.closing_received_frontier_entries << '\n'
+                  << "opening_sent_frontier_entry_count="
+                  << metrics.opening_sent_frontier_entries << '\n'
+                  << "opening_received_frontier_entry_count="
+                  << metrics.opening_received_frontier_entries << '\n'
+                  << "minimum_rank_closing_visited_voxel_count="
+                  << metrics.minimum_rank_closing_visited << '\n'
+                  << "maximum_rank_closing_visited_voxel_count="
+                  << metrics.maximum_rank_closing_visited << '\n'
+                  << "minimum_rank_opening_visited_voxel_count="
+                  << metrics.minimum_rank_opening_visited << '\n'
+                  << "maximum_rank_opening_visited_voxel_count="
+                  << metrics.maximum_rank_opening_visited << '\n'
                   << "minimum_rank_closed_voxel_count="
                   << metrics.minimum_rank_closed << '\n'
                   << "maximum_rank_closed_voxel_count="
                   << metrics.maximum_rank_closed << '\n'
+                  << "minimum_rank_opened_voxel_count="
+                  << metrics.minimum_rank_opened << '\n'
+                  << "maximum_rank_opened_voxel_count="
+                  << metrics.maximum_rank_opened << '\n'
+                  << "phase_timing_enabled=false\n"
                   << "peak_rss_bytes_sum=" << global_peak_rss << '\n';
-        print_statistics(statistics);
-        std::cout << "average_seconds_per_visited_voxel="
-                  << (metrics.global_visited == 0
+        print_statistics(incremental_statistics);
+        print_prefixed_statistics("incremental_", incremental_statistics);
+        print_prefixed_statistics("full_reclassification_", full_statistics);
+        std::cout << "full_to_incremental_speedup="
+                  << (incremental_statistics.average() == 0.0
                           ? 0.0
-                          : statistics.average()
-                              / static_cast<double>(metrics.global_visited))
+                          : full_statistics.average()
+                              / incremental_statistics.average())
+                  << '\n';
+        std::cout << "average_seconds_per_visited_voxel="
+                  << (metrics.visited() == 0
+                          ? 0.0
+                          : incremental_statistics.average()
+                              / static_cast<double>(metrics.visited()))
+                  << '\n'
+                  << "full_reclassification_average_seconds_per_grid_voxel="
+                  << full_statistics.average()
+                      / static_cast<double>(
+                          options.dimensions.x
+                          * options.dimensions.y
+                          * options.dimensions.z)
                   << '\n';
     }
     return 0;

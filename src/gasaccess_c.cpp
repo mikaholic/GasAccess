@@ -1,6 +1,7 @@
 #include "gasaccess/gasaccess_c.h"
 
 #include "gasaccess/accessibility_query.hpp"
+#include "gasaccess/atom_change_updater.hpp"
 #include "gasaccess/atom_voxelizer.hpp"
 #include "gasaccess/deposition_updater.hpp"
 #include "gasaccess/exterior_classifier.hpp"
@@ -25,10 +26,15 @@ struct ga_grid {
 
     gasaccess::GasGrid gas_grid;
     std::unique_ptr<gasaccess::DepositionUpdater> deposition_updater;
+    std::unique_ptr<gasaccess::AtomChangeUpdater> atom_change_updater;
 };
 
 struct ga_update_result {
     gasaccess::DepositionUpdateResult update_result;
+};
+
+struct ga_atom_change_result {
+    gasaccess::AtomChangeUpdateResult update_result;
 };
 
 namespace {
@@ -168,6 +174,37 @@ gasaccess::ConnectivityRepairMode convert_repair_mode(
     }
 }
 
+gasaccess::AtomChangeRepairMode convert_atom_change_repair_mode(
+    ga_atom_change_repair_mode repair_mode)
+{
+    switch (repair_mode) {
+    case GA_ATOM_CHANGE_REPAIR_INCREMENTAL:
+        return gasaccess::AtomChangeRepairMode::Incremental;
+    case GA_ATOM_CHANGE_REPAIR_FULL_RECLASSIFICATION:
+        return gasaccess::AtomChangeRepairMode::FullReclassification;
+    default:
+        throw std::invalid_argument("invalid atom-change repair mode");
+    }
+}
+
+ga_accessibility_repair_kind convert_repair_kind(
+    gasaccess::AccessibilityRepairKind repair_kind)
+{
+    switch (repair_kind) {
+    case gasaccess::AccessibilityRepairKind::None:
+        return GA_ACCESSIBILITY_REPAIR_NONE;
+    case gasaccess::AccessibilityRepairKind::Closing:
+        return GA_ACCESSIBILITY_REPAIR_CLOSING;
+    case gasaccess::AccessibilityRepairKind::Opening:
+        return GA_ACCESSIBILITY_REPAIR_OPENING;
+    case gasaccess::AccessibilityRepairKind::Mixed:
+        return GA_ACCESSIBILITY_REPAIR_MIXED;
+    case gasaccess::AccessibilityRepairKind::FullReclassification:
+        return GA_ACCESSIBILITY_REPAIR_FULL_RECLASSIFICATION;
+    }
+    throw std::logic_error("invalid atom-change repair kind");
+}
+
 gasaccess::DepositionUpdater& deposition_updater(
     ga_grid& grid,
     double precursor_radius,
@@ -181,6 +218,22 @@ gasaccess::DepositionUpdater& deposition_updater(
             repair_mode);
     }
     return *grid.deposition_updater;
+}
+
+gasaccess::AtomChangeUpdater& atom_change_updater(
+    ga_grid& grid,
+    double precursor_radius,
+    gasaccess::AtomChangeRepairMode repair_mode)
+{
+    if (!grid.atom_change_updater
+        || grid.atom_change_updater->precursor_radius() != precursor_radius
+        || grid.atom_change_updater->repair_mode() != repair_mode) {
+        grid.atom_change_updater =
+            std::make_unique<gasaccess::AtomChangeUpdater>(
+                precursor_radius,
+                repair_mode);
+    }
+    return *grid.atom_change_updater;
 }
 
 void validate_c_atoms(
@@ -461,6 +514,162 @@ ga_status ga_update_result_get_changed_voxels(
         require_pointer(out_voxel_ids, "output changed-voxel pointer is null");
         require_pointer(out_count, "output changed-voxel-count pointer is null");
         const auto& changed_voxel_ids = update_result->update_result.changed_voxel_ids;
+        *out_voxel_ids = changed_voxel_ids.data();
+        *out_count = changed_voxel_ids.size();
+    });
+}
+
+ga_status ga_apply_desorption(
+    ga_grid* grid,
+    const ga_atom* removed_atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_atom_change_result** out_change_result)
+{
+    return ga_apply_desorption_with_mode(
+        grid,
+        removed_atoms,
+        atom_count,
+        precursor_radius,
+        GA_ATOM_CHANGE_REPAIR_INCREMENTAL,
+        out_change_result);
+}
+
+ga_status ga_apply_desorption_with_mode(
+    ga_grid* grid,
+    const ga_atom* removed_atoms,
+    size_t atom_count,
+    double precursor_radius,
+    ga_atom_change_repair_mode repair_mode,
+    ga_atom_change_result** out_change_result)
+{
+    const ga_atom_change_batch atom_changes = {
+        {nullptr, 0},
+        {removed_atoms, atom_count}};
+    return ga_apply_atom_changes_with_mode(
+        grid,
+        &atom_changes,
+        precursor_radius,
+        repair_mode,
+        out_change_result);
+}
+
+ga_status ga_apply_atom_changes(
+    ga_grid* grid,
+    const ga_atom_change_batch* atom_changes,
+    double precursor_radius,
+    ga_atom_change_result** out_change_result)
+{
+    return ga_apply_atom_changes_with_mode(
+        grid,
+        atom_changes,
+        precursor_radius,
+        GA_ATOM_CHANGE_REPAIR_INCREMENTAL,
+        out_change_result);
+}
+
+ga_status ga_apply_atom_changes_with_mode(
+    ga_grid* grid,
+    const ga_atom_change_batch* atom_changes,
+    double precursor_radius,
+    ga_atom_change_repair_mode repair_mode,
+    ga_atom_change_result** out_change_result)
+{
+    if (out_change_result != nullptr) {
+        *out_change_result = nullptr;
+    }
+    return protect_c_api([&]() {
+        require_pointer(grid, "grid pointer is null");
+        require_pointer(atom_changes, "atom-change batch pointer is null");
+        require_pointer(
+            out_change_result,
+            "output atom-change-result pointer is null");
+        const auto converted_repair_mode =
+            convert_atom_change_repair_mode(repair_mode);
+        validate_c_atoms(
+            *grid,
+            atom_changes->added_atoms.atoms,
+            atom_changes->added_atoms.count,
+            precursor_radius);
+        validate_c_atoms(
+            *grid,
+            atom_changes->removed_atoms.atoms,
+            atom_changes->removed_atoms.count,
+            precursor_radius);
+        const auto added_atoms = convert_c_atoms(
+            atom_changes->added_atoms.atoms,
+            atom_changes->added_atoms.count);
+        const auto removed_atoms = convert_c_atoms(
+            atom_changes->removed_atoms.atoms,
+            atom_changes->removed_atoms.count);
+
+        auto change_result = std::make_unique<ga_atom_change_result>();
+        change_result->update_result = atom_change_updater(
+            *grid,
+            precursor_radius,
+            converted_repair_mode).apply_atom_changes(
+                grid->gas_grid,
+                {{added_atoms.data(), added_atoms.size()},
+                 {removed_atoms.data(), removed_atoms.size()}});
+        *out_change_result = change_result.release();
+    });
+}
+
+void ga_atom_change_result_destroy(ga_atom_change_result* change_result)
+{
+    delete change_result;
+}
+
+ga_status ga_atom_change_result_get_summary(
+    const ga_atom_change_result* change_result,
+    ga_atom_change_update_summary* out_summary)
+{
+    return protect_c_api([&]() {
+        require_pointer(change_result, "atom-change-result pointer is null");
+        require_pointer(
+            out_summary,
+            "output atom-change-summary pointer is null");
+        const auto& result = change_result->update_result;
+        out_summary->blocker_count_changed_voxel_count =
+            result.blocker_count_changed_voxel_count;
+        out_summary->newly_solid_count = result.newly_solid_count;
+        out_summary->newly_gas_count = result.newly_gas_count;
+        out_summary->changed_voxel_count = result.changed_voxel_ids.size();
+        out_summary->repair_kind = convert_repair_kind(result.repair_kind);
+        out_summary->full_reclassification_performed =
+            result.used_full_reclassification() ? 1U : 0U;
+        out_summary->closing_repair_performed =
+            result.used_closing_repair() ? 1U : 0U;
+        out_summary->opening_repair_performed =
+            result.used_opening_repair() ? 1U : 0U;
+        out_summary->closing_visited_voxel_count =
+            result.closing_visited_voxel_count;
+        out_summary->opening_visited_voxel_count =
+            result.opening_visited_voxel_count;
+        out_summary->repair_closed_voxel_count =
+            result.repair_closed_voxel_count;
+        out_summary->repair_opened_voxel_count =
+            result.repair_opened_voxel_count;
+        out_summary->classification.solid_count =
+            result.classification.solid_count;
+        out_summary->classification.outside_accessible_count =
+            result.classification.outside_accessible_count;
+        out_summary->classification.closed_void_count =
+            result.classification.closed_void_count;
+    });
+}
+
+ga_status ga_atom_change_result_get_changed_voxels(
+    const ga_atom_change_result* change_result,
+    const ga_voxel_id** out_voxel_ids,
+    size_t* out_count)
+{
+    return protect_c_api([&]() {
+        require_pointer(change_result, "atom-change-result pointer is null");
+        require_pointer(out_voxel_ids, "output changed-voxel pointer is null");
+        require_pointer(out_count, "output changed-voxel-count pointer is null");
+        const auto& changed_voxel_ids =
+            change_result->update_result.changed_voxel_ids;
         *out_voxel_ids = changed_voxel_ids.data();
         *out_count = changed_voxel_ids.size();
     });

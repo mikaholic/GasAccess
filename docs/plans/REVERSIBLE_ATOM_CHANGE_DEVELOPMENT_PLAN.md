@@ -1,6 +1,6 @@
 # Reversible Atom-Change Development Plan
 
-Status: Phases R1-R4 complete; Phases R5-R6 planned
+Status: Complete; Phases R1-R6 implemented and verified
 Last updated: 2026-09-05
 
 ## 1. Objective
@@ -376,6 +376,10 @@ reference for MPI ranks 1, 2, 4, and 8.
 
 ## 8. Phase R5 — Public interfaces and tKMC integration
 
+Status: complete (2026-09-05). Interfaces and integration verification are
+recorded in
+[`../benchmarks/PHASE_R5_PUBLIC_INTEGRATION.md`](../benchmarks/PHASE_R5_PUBLIC_INTEGRATION.md).
+
 ### 8.1 Library interfaces
 
 - Stabilize the C++ `apply_atom_changes()` and `apply_desorption()` entry points.
@@ -408,6 +412,12 @@ Existing deposition clients compile unchanged, while the mock tKMC path uses
 one collective batch API for all supported atomic changes.
 
 ## 9. Phase R6 — Efficiency and scaling benchmarks
+
+Completion: implemented and verified on 2026-09-05. All 48 repeated Release
+configurations passed, and results are archived in
+[`../benchmarks/PHASE_R6_REVERSIBLE_EFFICIENCY.md`](../benchmarks/PHASE_R6_REVERSIBLE_EFFICIENCY.md)
+and
+[`../benchmarks/PHASE_R6_RESULTS.csv`](../benchmarks/PHASE_R6_RESULTS.csv).
 
 Extend `gasaccess_mpi_efficiency_driver` and the existing repair fixture rather
 than introducing a separate timing program. Preserve the current deposition

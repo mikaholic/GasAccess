@@ -1,5 +1,11 @@
 # Phase 15 lifecycle efficiency tests
 
+The reversible Phase R6 extension adds desorption and mixed atom changes,
+paired incremental/full timings, and a 48-configuration repair matrix. See
+[`PHASE_R6_REVERSIBLE_EFFICIENCY.md`](PHASE_R6_REVERSIBLE_EFFICIENCY.md) for
+the current repair benchmark contract and results. This page retains the
+original deposition-only lifecycle record.
+
 This phase adds one repeated MPI driver for the three operations seen by a KMC
 application: initial grid construction/classification, cached coordinate
 queries, and collective deposition repair. The driver emits one `key=value`

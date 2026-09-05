@@ -270,6 +270,24 @@ const auto result = updater.apply_atom_changes(
      {removed_atoms, removed_atom_count}});
 ```
 
+`AtomChangeEventBuffer` can own synchronized records across the collective
+call. Record removed atoms before the KMC atom list discards or moves them:
+
+```cpp
+gasaccess::AtomChangeEventBuffer events;
+events.record_deposition(added_atom);
+events.record_desorption(removed_atom_at_old_position);
+
+const auto result = updater.apply_atom_changes(
+    distributed_grid,
+    events.atom_changes());
+events.clear();
+```
+
+The event buffer owns records but does not perform MPI synchronization. The
+host must exchange both added and old removed-atom records using the same
+excluded-radius coverage required for initialization.
+
 Both atom views are aggregated before any blocker count is committed. A move
 is therefore represented as removal at the old position and addition at the
 new position without exposing an intermediate hole or blocker. If any rank

@@ -208,4 +208,18 @@ AtomChangeUpdateResult AtomChangeUpdater::apply_atom_changes(
     return result;
 }
 
+AtomChangeUpdateResult AtomChangeUpdater::apply_deposition(
+    GasGrid& gas_grid,
+    AtomView added_atoms) const
+{
+    return apply_atom_changes(gas_grid, {added_atoms, {nullptr, 0}});
+}
+
+AtomChangeUpdateResult AtomChangeUpdater::apply_desorption(
+    GasGrid& gas_grid,
+    AtomView removed_atoms) const
+{
+    return apply_atom_changes(gas_grid, {{nullptr, 0}, removed_atoms});
+}
+
 }  // namespace gasaccess

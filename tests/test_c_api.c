@@ -237,6 +237,122 @@ static void test_c_deposition_update(void)
     ga_grid_destroy(grid);
 }
 
+static void test_c_reversible_updates(void)
+{
+    ga_grid_spec grid_spec = make_grid_spec(5, 1, 1);
+    ga_grid* grid = NULL;
+    ga_atom initial_atom = {{2.5, 0.5, 0.5}, 0.0};
+    ga_atom moved_atom = {{1.5, 0.5, 0.5}, 0.0};
+    ga_atom cancellation_atom = {{4.5, 0.5, 0.5}, 0.0};
+    ga_voxel_id newly_solid_count = 0;
+    ga_classification_summary classification;
+    ga_atom_change_batch changes;
+    ga_atom_change_result* change_result = NULL;
+    ga_atom_change_update_summary summary;
+    const ga_voxel_id* changed_voxel_ids = NULL;
+    size_t changed_voxel_count = 0;
+
+    grid_spec.reservoir_faces.x_low = 1;
+    REQUIRE(ga_grid_create(&grid_spec, &grid) == GA_STATUS_SUCCESS);
+    REQUIRE(ga_voxelize_atoms(
+        grid,
+        &initial_atom,
+        1,
+        0.0,
+        &newly_solid_count) == GA_STATUS_SUCCESS);
+    REQUIRE(newly_solid_count == 1);
+    REQUIRE(ga_classify_exterior(grid, &classification) == GA_STATUS_SUCCESS);
+    REQUIRE(classification.solid_count == 1);
+    REQUIRE(classification.outside_accessible_count == 2);
+    REQUIRE(classification.closed_void_count == 2);
+
+    changes.added_atoms = (ga_atom_view){&moved_atom, 1};
+    changes.removed_atoms = (ga_atom_view){&initial_atom, 1};
+    REQUIRE(ga_apply_atom_changes(
+        grid,
+        &changes,
+        0.0,
+        &change_result) == GA_STATUS_SUCCESS);
+    REQUIRE(change_result != NULL);
+    REQUIRE(ga_atom_change_result_get_summary(change_result, &summary)
+        == GA_STATUS_SUCCESS);
+    REQUIRE(summary.blocker_count_changed_voxel_count == 2);
+    REQUIRE(summary.newly_solid_count == 1);
+    REQUIRE(summary.newly_gas_count == 1);
+    REQUIRE(summary.changed_voxel_count == 2);
+    REQUIRE(summary.repair_kind == GA_ACCESSIBILITY_REPAIR_MIXED);
+    REQUIRE(summary.full_reclassification_performed == 0);
+    REQUIRE(summary.classification.solid_count == 1);
+    REQUIRE(summary.classification.outside_accessible_count == 1);
+    REQUIRE(summary.classification.closed_void_count == 3);
+    REQUIRE(ga_atom_change_result_get_changed_voxels(
+        change_result,
+        &changed_voxel_ids,
+        &changed_voxel_count) == GA_STATUS_SUCCESS);
+    REQUIRE(changed_voxel_count == 2);
+    REQUIRE(changed_voxel_ids[0] == get_voxel_id(grid, 1, 0, 0));
+    REQUIRE(changed_voxel_ids[1] == get_voxel_id(grid, 2, 0, 0));
+    ga_atom_change_result_destroy(change_result);
+    change_result = NULL;
+
+    REQUIRE(ga_apply_desorption(
+        grid,
+        &moved_atom,
+        1,
+        0.0,
+        &change_result) == GA_STATUS_SUCCESS);
+    REQUIRE(ga_atom_change_result_get_summary(change_result, &summary)
+        == GA_STATUS_SUCCESS);
+    REQUIRE(summary.newly_solid_count == 0);
+    REQUIRE(summary.newly_gas_count == 1);
+    REQUIRE(summary.changed_voxel_count == 4);
+    REQUIRE(summary.repair_kind == GA_ACCESSIBILITY_REPAIR_OPENING);
+    REQUIRE(summary.opening_repair_performed == 1);
+    REQUIRE(summary.repair_opened_voxel_count == 4);
+    REQUIRE(summary.classification.solid_count == 0);
+    REQUIRE(summary.classification.outside_accessible_count == 5);
+    REQUIRE(summary.classification.closed_void_count == 0);
+    ga_atom_change_result_destroy(change_result);
+    change_result = NULL;
+
+    changes.added_atoms = (ga_atom_view){&cancellation_atom, 1};
+    changes.removed_atoms = (ga_atom_view){&cancellation_atom, 1};
+    REQUIRE(ga_apply_atom_changes_with_mode(
+        grid,
+        &changes,
+        0.0,
+        GA_ATOM_CHANGE_REPAIR_FULL_RECLASSIFICATION,
+        &change_result) == GA_STATUS_SUCCESS);
+    REQUIRE(ga_atom_change_result_get_summary(change_result, &summary)
+        == GA_STATUS_SUCCESS);
+    REQUIRE(summary.blocker_count_changed_voxel_count == 0);
+    REQUIRE(summary.changed_voxel_count == 0);
+    REQUIRE(summary.repair_kind == GA_ACCESSIBILITY_REPAIR_NONE);
+    REQUIRE(summary.full_reclassification_performed == 0);
+    ga_atom_change_result_destroy(change_result);
+    change_result = NULL;
+
+    changes.added_atoms = (ga_atom_view){&initial_atom, 1};
+    changes.removed_atoms = (ga_atom_view){NULL, 0};
+    REQUIRE(ga_apply_atom_changes_with_mode(
+        grid,
+        &changes,
+        0.0,
+        GA_ATOM_CHANGE_REPAIR_FULL_RECLASSIFICATION,
+        &change_result) == GA_STATUS_SUCCESS);
+    REQUIRE(ga_atom_change_result_get_summary(change_result, &summary)
+        == GA_STATUS_SUCCESS);
+    REQUIRE(summary.newly_solid_count == 1);
+    REQUIRE(summary.newly_gas_count == 0);
+    REQUIRE(summary.repair_kind
+        == GA_ACCESSIBILITY_REPAIR_FULL_RECLASSIFICATION);
+    REQUIRE(summary.full_reclassification_performed == 1);
+    REQUIRE(summary.classification.solid_count == 1);
+    ga_atom_change_result_destroy(change_result);
+    ga_atom_change_result_destroy(NULL);
+    ga_grid_destroy(grid);
+}
+
 static void test_c_error_handling(void)
 {
     ga_grid_spec invalid_spec = make_grid_spec(0, 1, 1);
@@ -247,6 +363,8 @@ static void test_c_error_handling(void)
     uint8_t is_accessible = 0;
     ga_atom atom = {{0.5, 0.5, 0.5}, 0.0};
     ga_update_result* update_result = NULL;
+    ga_atom_change_result* change_result = NULL;
+    ga_atom_change_batch atom_changes = {{&atom, 1}, {NULL, 0}};
 
     REQUIRE(sizeof(ga_gas_state) == 1);
     REQUIRE(sizeof(ga_voxel_id) == 8);
@@ -271,6 +389,26 @@ static void test_c_error_handling(void)
         0.0,
         &update_result) == GA_STATUS_INVALID_ARGUMENT);
     REQUIRE(update_result == NULL);
+    REQUIRE(ga_apply_atom_changes_with_mode(
+        grid,
+        &atom_changes,
+        0.0,
+        (ga_atom_change_repair_mode)99,
+        &change_result) == GA_STATUS_INVALID_ARGUMENT);
+    REQUIRE(change_result == NULL);
+    REQUIRE(ga_apply_atom_changes(
+        grid,
+        NULL,
+        0.0,
+        &change_result) == GA_STATUS_INVALID_ARGUMENT);
+    REQUIRE(change_result == NULL);
+    REQUIRE(ga_apply_desorption(
+        grid,
+        NULL,
+        1,
+        0.0,
+        &change_result) == GA_STATUS_INVALID_ARGUMENT);
+    REQUIRE(change_result == NULL);
     REQUIRE(ga_apply_deposition_with_mode(
         grid,
         &atom,
@@ -339,6 +477,11 @@ int main(void)
         printf("[PASS] C deposition update\n");
     }
 
+    test_c_reversible_updates();
+    if (failure_count == 0) {
+        printf("[PASS] C reversible updates\n");
+    }
+
     test_c_non_cubic_spacing();
     if (failure_count == 0) {
         printf("[PASS] C non-cubic spacing\n");
@@ -349,6 +492,6 @@ int main(void)
         return 1;
     }
 
-    printf("5 C API test groups passed\n");
+    printf("6 C API test groups passed\n");
     return 0;
 }
