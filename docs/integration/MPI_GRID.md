@@ -4,7 +4,7 @@ Phases 11 through 13 provide an optional C++ MPI layer in
 `GasAccess::gasaccess_mpi`. It
 reuses the host application's Cartesian decomposition; it does not create or
 rebalance a second domain decomposition. Both distributed initial flood-fill
-and incremental deposition/desorption connectivity repair are implemented.
+and incremental adsorption/desorption connectivity repair are implemented.
 Phase 14 adds the SPPARKS field adapter and static acceptance application
 documented in
 [`SPPARKS_STATIC_INTEGRATION.md`](SPPARKS_STATIC_INTEGRATION.md).
@@ -155,18 +155,18 @@ const bool accessible = query.is_site_accessible(atom_position);
 that communicator must call it in the same order. The subsequent position-based
 query remains local, allocation-free, and communication-free.
 
-## Distributed incremental deposition update
+## Distributed incremental adsorption update
 
-`DistributedDepositionUpdater::apply_deposition()` is the production update
-path for monotonic gas-to-solid changes. The caller supplies deposited atoms
+`DistributedAdsorptionUpdater::apply_adsorption()` is the production update
+path for monotonic gas-to-solid changes. The caller supplies adsorbed atoms
 after the normal KMC owned/ghost synchronization:
 
 ```cpp
-gasaccess::DistributedDepositionUpdater updater(precursor_radius);
+gasaccess::DistributedAdsorptionUpdater updater(precursor_radius);
 
-const auto result = updater.apply_deposition(
+const auto result = updater.apply_adsorption(
     distributed_grid,
-    {deposited_atoms, deposited_atom_count});
+    {adsorbed_atoms, adsorbed_atom_count});
 ```
 
 Every rank in the grid communicator must call the updater in the same order,
@@ -192,7 +192,7 @@ compact tangential face offsets and termination/source reductions. Components
 that reach a configured source stay accessible; exhausted components are
 relabelled `ClosedVoid` on their owning ranks. No full gas grid is gathered.
 
-`DistributedDepositionUpdateResult::changed_owned_voxel_coords` contains local
+`DistributedAdsorptionUpdateResult::changed_owned_voxel_coords` contains local
 owned coordinates whose state changed. It is diagnostic; the KMC integration
 does not need atom registration or selective propensity invalidation. After the
 update, KMC continues to call only:
@@ -205,7 +205,7 @@ For debugging, construct the updater with
 `ConnectivityRepairMode::FullReclassification`. Every geometry-changing call
 then uses the Phase 12 classifier and reports all changed owned coordinates.
 
-This deposition entry point remains restricted to gas-to-solid changes. Use
+This adsorption entry point remains restricted to gas-to-solid changes. Use
 the desorption entry point below for atom removals, or the unified atom-change
 entry point for additions and removals in one atomic batch.
 
@@ -275,7 +275,7 @@ call. Record removed atoms before the KMC atom list discards or moves them:
 
 ```cpp
 gasaccess::AtomChangeEventBuffer events;
-events.record_deposition(added_atom);
+events.record_adsorption(added_atom);
 events.record_desorption(removed_atom_at_old_position);
 
 const auto result = updater.apply_atom_changes(

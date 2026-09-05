@@ -22,7 +22,7 @@ runs can retain distributions rather than only aggregate time.
 
 ## Measured bottleneck and implementation
 
-Before Phase 10, every deposition update copied all voxel states, counted them,
+Before Phase 10, every adsorption update copied all voxel states, counted them,
 and scanned the full array again to discover which voxels became solid. The
 million-voxel workload spent 23.901399 ms on three locally safe one-voxel
 updates even though connectivity traversal was already avoided.
@@ -33,7 +33,7 @@ Phase 10 makes the production affected-region mode local:
   classification summary an O(1) lookup.
 - `AtomVoxelizer` can record exact newly solid voxel IDs and their previous
   states during its already-required bounded candidate traversal.
-- `DepositionUpdater` reuses this change-record storage and no longer snapshots,
+- `AdsorptionUpdater` reuses this change-record storage and no longer snapshots,
   counts, or searches the full state array in production mode.
 - `ConnectivityRepairMode::FullReclassification` intentionally retains the
   full snapshot and state diff as the correctness/debug reference.
@@ -100,8 +100,8 @@ whereas the common proven-safe path no longer scales with total grid volume.
 
 ## Deterministic pinch-off
 
-The new `pinch-off` scenario deposits a 640-voxel roof over an open trench. The
-first 639 deposits are locally safe; the final deposit closes and repairs the
+The new `pinch-off` scenario adsorbs a 640-voxel roof over an open trench. The
+first 639 adsorbs are locally safe; the final adsorb closes and repairs the
 39,680-voxel cavity.
 
 ```sh

@@ -48,7 +48,7 @@ All production code and tests will use these conventions:
 | Construct | Convention | Example |
 |---|---|---|
 | Classes and public types | `PascalCase` | `GasGrid`, `GridSpec` |
-| Functions and methods | `snake_case` | `apply_deposition()` |
+| Functions and methods | `snake_case` | `apply_adsorption()` |
 | Variables | `snake_case` | `voxel_count` |
 | Private data members | trailing-underscore `snake_case_` | `states_` |
 | C API functions | prefixed `snake_case` | `ga_is_accessible()` |
@@ -112,7 +112,7 @@ to external gas.
   clearance is too small for the precursor, even if the underlying atom surfaces
   do not touch. Consequently, accessibility is specific to the configured
   precursor radius.
-- Monotonic deposition is implemented first: gas voxels may become solid, but
+- Monotonic adsorption is implemented first: gas voxels may become solid, but
   solid voxels do not become gas.
 - Gas-to-gas connectivity and reaction-site-to-gas adjacency are separate
   policies. Gas connectivity remains six-neighbor even if a different fixed
@@ -219,7 +219,7 @@ class GasAccess {
 public:
     void build_from_atoms(AtomView atoms);
     void classify_all();
-    UpdateResult apply_deposition(AtomView new_atoms);
+    UpdateResult apply_adsorption(AtomView new_atoms);
 };
 
 class GasAccessibilityQuery {
@@ -372,28 +372,28 @@ Exit gate:
 
 Expected production code: 200-400 lines.
 
-#### Phase 5: deposition with full recomputation
+#### Phase 5: adsorption with full recomputation
 
 Scope:
 
-- Accept one atom or a small deposition batch.
+- Accept one atom or a small adsorption batch.
 - Update only potentially affected occupancy voxels.
 - Re-run the full reference classification after geometry changes.
 - Return the voxels whose accessibility state changed.
-- Enforce or clearly report the initial deposition-only update contract.
+- Enforce or clearly report the initial adsorption-only update contract.
 
 Tests:
 
 - Staged sidewall growth followed by trench pinch-off.
-- Deposition that changes no occupancy.
-- Overlapping deposition and multi-voxel deposition.
+- Adsorption that changes no occupancy.
+- Overlapping adsorption and multi-voxel adsorption.
 - Closure across a periodic seam.
-- Removal of an empty reservoir seed by deposition.
+- Removal of an empty reservoir seed by adsorption.
 
 Exit gate:
 
 - The serial baseline correctly detects sealed voids after arbitrary supported
-  deposition sequences.
+  adsorption sequences.
 
 Expected production code: 250-450 lines.
 
@@ -461,7 +461,7 @@ Tests:
 - Multiple pinch-off shapes and nested cavities.
 - Pinch-off involving source-adjacent cells.
 - Connectivity through periodic seams.
-- Random deposition sequences compared voxel-for-voxel with full flood-fill
+- Random adsorption sequences compared voxel-for-voxel with full flood-fill
   after every event.
 
 Exit gate:
@@ -502,7 +502,7 @@ Tests:
   `query.is_site_accessible(atom_position)` for each atom.
 - Atoms adjacent to exterior-connected gas return true, while atoms adjacent
   only to solid or closed-void gas return false.
-- The same query object returns the new result after a deposition update creates
+- The same query object returns the new result after an adsorption update creates
   a pinch-off or otherwise changes cached connectivity.
 - Queries use the atom's latest supplied position after a simulated MD move.
 - Periodic seams and non-periodic out-of-domain positions obey the documented
@@ -526,7 +526,7 @@ already exists; most work is integration testing and contract documentation.
 Scope:
 
 - Benchmark a structure containing millions of atoms.
-- Profile voxelization, initial classification, harmless deposition, real
+- Profile voxelization, initial classification, harmless adsorption, real
   pinch-off repair, and query throughput separately.
 - Measure common-update median and tail latency, fallback frequency, and peak RSS.
 - Improve data layout and traversal only where measurements justify it.
@@ -688,7 +688,7 @@ Tests:
 
 - Pinch-offs occurring within a rank and exactly on rank boundaries.
 - Cavities spanning several ranks.
-- Random distributed deposition sequences compared with the serial reference.
+- Random distributed adsorption sequences compared with the serial reference.
 - Results are identical under multiple decompositions of the same domain.
 
 Exit gate:
@@ -716,7 +716,7 @@ Scope:
   and `xyz` access pattern. Exchange only atoms needed by spatial neighbor
   ranks; do not globally gather the atom structure.
 - Build/initialize the grid from static open-trench, sealed-trench, and
-  million-atom structures. Do not invoke KMC deposition or event logic.
+  million-atom structures. Do not invoke KMC adsorption or event logic.
 - Schedule work as: synchronize mock SPPARKS atoms, build owned gas occupancy,
   classify connectivity, exchange gas-state halos, then iterate owned sites.
 - Use only `query.is_site_accessible(atom_position)` in that site loop.
@@ -765,7 +765,7 @@ degenerate dimensions.
 ### Reference differential tests
 
 The full flood-fill remains the correctness oracle. Incremental state will be
-compared against it after each event in randomized deposition sequences.
+compared against it after each event in randomized adsorption sequences.
 
 Required invariants are:
 
@@ -788,7 +788,7 @@ Performance reports will separate:
 
 - structure input and voxelization;
 - initial flood-fill;
-- harmless local deposition;
+- harmless local adsorption;
 - suspected and confirmed pinch-off repair;
 - accessibility query throughput;
 - peak memory and bytes per voxel;
@@ -836,7 +836,7 @@ Before Phase 0 is finalized:
 - expected voxel spacing or desired resolution study;
 - effective precursor radius and how it is calibrated for the target molecule;
 - periodic axes and reservoir/source definition;
-- deposition event payload;
+- adsorption event payload;
 - reaction-site location and desired site-contact rule.
 
 Before Phase 6 uses the supplied structure:
@@ -890,7 +890,7 @@ Before Phase 11:
 - [x] Phase 2: static atom voxelization
 - [x] Phase 3: initial exterior classification
 - [x] Phase 4: cached reaction-site queries and C interface
-- [x] Phase 5: deposition with full recomputation
+- [x] Phase 5: adsorption with full recomputation
 - [x] Phase 6: standalone reference driver and baseline measurements
 - [x] Phase 7: conservative local topology filter
 - [x] Phase 8: serial affected-region repair
@@ -987,25 +987,25 @@ Update this checklist only when a phase's tests and exit gate have passed.
 
 #### Phase 5 completion — 2026-08-12
 
-- Added `DepositionUpdater::apply_deposition()` for atoms whose placement and
-  deposition physics are determined by the caller/KMC simulator.
-- Enforced the monotonic deposition-only contract and required a fully
+- Added `AdsorptionUpdater::apply_adsorption()` for atoms whose placement and
+  adsorption physics are determined by the caller/KMC simulator.
+- Enforced the monotonic adsorption-only contract and required a fully
   classified input grid. Each event batch performs additive steric voxelization
   and, when occupancy changes, exactly one full Phase 3 reclassification.
-- Added `DepositionUpdateResult` with the newly solid count, post-update
+- Added `AdsorptionUpdateResult` with the newly solid count, post-update
   classification counts, and sorted unique IDs for every voxel whose state
   changed. Fully overlapping and empty batches skip reclassification.
 - Added opaque C update-result handles and accessors without changing ownership
-  of the caller's deposited-atom data.
+  of the caller's adsorbed-atom data.
 - Verified staged trench sidewall growth and pinch-off, overlapping/no-op
   events, batch validation before mutation, closure across a periodic seam, and
-  deposition that blocks the only explicit reservoir source.
+  adsorption that blocks the only explicit reservoir source.
 - Compared 160 deterministic one- and two-atom event batches across all eight
   periodic-axis configurations against explicit voxelization plus full
   reference classification after every event.
 - Passed the full six-executable CTest suite under GCC 8.5 with C and C++
   warnings treated as errors.
-- Passed Valgrind Memcheck for the C++ deposition suite and pure-C end-to-end
+- Passed Valgrind Memcheck for the C++ adsorption suite and pure-C end-to-end
   update path with zero errors and no memory leaks.
 
 #### Phase 6 completion — 2026-08-12
@@ -1018,7 +1018,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
   precursor radii, query count, and update count from the command line.
 - Reported state summary counts and FNV-1a state checksums before and after
   updates, plus separate timings for grid creation, atom generation,
-  voxelization, classification, cached queries, and full deposition updates.
+  voxelization, classification, cached queries, and full adsorption updates.
 - Reported exact persistent state storage, a conservative traversal-frontier
   logical-payload bound, and Linux process peak RSS with clear accounting
   limitations.
@@ -1028,7 +1028,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
   to 12,288 voxels in routine testing.
 - Completed and recorded a Release baseline with one million atom records,
   1,048,576 voxels, one million cached queries, and three full-recomputation
-  deposition updates. See `docs/benchmarks/PHASE6_BASELINE.md` for commands,
+  adsorption updates. See `docs/benchmarks/PHASE6_BASELINE.md` for commands,
   platform details, timings, counts, checksums, and memory results.
 - Passed Valgrind Memcheck for the sealed-trench end-to-end driver path with
   zero errors and no memory leaks.
@@ -1046,10 +1046,10 @@ Update this checklist only when a phase's tests and exit gate have passed.
   Blocking an already closed-void voxel and accessible removals with zero or
   one surviving accessible neighbor are safe under the documented classified
   input contract.
-- Integrated the filter into `DepositionUpdater`. Proven-safe updates preserve
+- Integrated the filter into `AdsorptionUpdater`. Proven-safe updates preserve
   cached accessibility and adjust summary counts locally; inconclusive updates
   retain the exact Phase 5 classifier and changed-state diff as a fallback.
-- Added `full_reclassification_performed` reporting to the C++ and C deposition
+- Added `full_reclassification_performed` reporting to the C++ and C adsorption
   results and added a matching counter to the standalone reference driver.
 - Verified the safe/fallback decision against full reclassification for all
   128 occupancy patterns around a center voxel in a `3x3x1` fixture and for 160
@@ -1066,7 +1066,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
   storage/update optimization rather than expanding the topology-filter phase.
 - Passed the full 12-case CTest suite with GCC 8.5 and C/C++ warnings treated
   as errors. Valgrind Memcheck reported zero errors and no leaks for the local
-  filter, deposition updater, and pure-C API suites.
+  filter, adsorption updater, and pure-C API suites.
 
 #### Phase 8 completion — 2026-08-14
 
@@ -1082,7 +1082,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
   multi-voxel cuts no longer invoke the full classifier in production mode.
 - Added `ConnectivityRepairMode::FullReclassification` as a configurable C++
   reference/debug path. The C API exposes the equivalent
-  `ga_apply_deposition_with_mode()` operation and reuses updater workspace on
+  `ga_apply_adsorption_with_mode()` operation and reuses updater workspace on
   its grid handle when the radius and mode remain unchanged.
 - Added update-result metrics for repair use, visited voxels, and newly closed
   voxels in C++, C, and the standalone reference driver.
@@ -1098,10 +1098,10 @@ Update this checklist only when a phase's tests and exit gate have passed.
   `docs/benchmarks/PHASE8_REPAIR.md` for the locality and regression record.
 - The full state snapshot and newly-solid discovery scan remain transitional;
   Phase 8 eliminates global connectivity traversal for affected repairs, not
-  all full-array work in the deposition pipeline.
+  all full-array work in the adsorption pipeline.
 - Passed the full 13-case CTest suite with GCC 8.5 and C/C++ warnings treated
   as errors. Valgrind Memcheck reported zero errors and no leaks for the repair,
-  deposition-updater, and pure-C API suites.
+  adsorption-updater, and pure-C API suites.
 
 #### Phase 9 completion — 2026-08-17
 
@@ -1111,7 +1111,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
   every site and leaves atom storage, reaction state, and iteration under KMC
   ownership.
 - Verified that one query object observes an affected-region pinch-off after a
-  deposition update without being reconstructed or receiving changed-voxel
+  adsorption update without being reconstructed or receiving changed-voxel
   identifiers.
 - Verified that KMC can pass a new atom position directly after a simulated MD
   move; GasAccess stores no atom identifier, registry, or position cache.
@@ -1135,7 +1135,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
   and no change to the one-byte-per-voxel state field. Added matching C++ and C
   state-count accessors with validation tests.
 - Added exact newly-solid change capture to `AtomVoxelizer`, including each
-  voxel's state immediately before removal. `DepositionUpdater` reuses this
+  voxel's state immediately before removal. `AdsorptionUpdater` reuses this
   storage and no longer performs production full-grid snapshots or discovery
   scans.
 - Kept full state snapshots and diffs exclusively in the explicitly selected
@@ -1157,7 +1157,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
   `docs/benchmarks/PHASE10_SERIAL_OPTIMIZATION.md`.
 - Passed the full 15-case CTest suite under GCC 8.5 with C and C++ warnings
   treated as errors. Valgrind Memcheck reported zero errors and no leaks for
-  the grid, change-capturing voxelizer, deposition updater, C API, and
+  the grid, change-capturing voxelizer, adsorption updater, C API, and
   end-to-end pinch-off driver suites.
 
 #### Phase 11 completion — 2026-08-19
@@ -1230,7 +1230,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
 
 #### Phase 13 completion — 2026-08-19
 
-- Added `DistributedDepositionUpdater` with the same affected-region versus
+- Added `DistributedAdsorptionUpdater` with the same affected-region versus
   forced-full mode selection as the serial updater. Calls are collective, while
   the existing position-based KMC query remains communication-free.
 - Extended `DistributedGasGrid` with incrementally maintained owned-state
@@ -1259,7 +1259,7 @@ Update this checklist only when a phase's tests and exit gate have passed.
   closed-void fast paths, proven-safe local removal, local and rank-boundary
   pinch-offs, periodic-seam closure, multi-voxel closure, spanning cavities,
   final ghosts/queries/counts, and a deterministically shuffled 64-event
-  deposition sequence.
+  adsorption sequence.
 - Passed all 24 registered serial, reference-driver, and MPI tests with strict
   GCC warnings treated as errors. A two-rank Valgrind run of the complete
   distributed updater suite using OpenMPI's TCP/self transport completed with

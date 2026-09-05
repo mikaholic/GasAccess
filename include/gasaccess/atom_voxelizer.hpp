@@ -59,7 +59,7 @@ public:
 
     // Additionally records every newly solid voxel and its previous state.
     // The caller-owned output is cleared after input validation and may retain
-    // capacity for reuse across deposition events.
+    // capacity for reuse across adsorption events.
     VoxelId voxelize(
         GasGrid& gas_grid,
         AtomView atom_view,

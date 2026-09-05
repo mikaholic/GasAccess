@@ -2,8 +2,8 @@
 
 Date: 2026-09-05
 
-Phase R6 extends the MPI lifecycle benchmark from deposition-only repair to
-deposition, desorption, and atomic mixed batches. It covers detection-only,
+Phase R6 extends the MPI lifecycle benchmark from adsorption-only repair to
+adsorption, desorption, and atomic mixed batches. It covers detection-only,
 best, medium, and worst cases at 1, 2, 4, and 8 ranks: 48 repeated benchmark
 configurations in total.
 
@@ -16,7 +16,7 @@ The repair driver accepts:
 
 ```text
 --operation repair
---change-kind deposition|desorption|mixed
+--change-kind adsorption|desorption|mixed
 --case baseline|best|medium|worst
 ```
 
@@ -55,13 +55,13 @@ Environment:
 
 | Change kind | Baseline | Best | Medium | Worst |
 |---|---|---|---|---|
-| Deposition | Add a second blocker to an already-solid plug | Close one local `8x8x8` pocket | Close 25% of the grid | Close 75% of the grid across every rank |
+| Adsorption | Add a second blocker to an already-solid plug | Close one local `8x8x8` pocket | Close 25% of the grid | Close 75% of the grid across every rank |
 | Desorption | Remove one of two overlapping blockers | Open one local `8x8x8` pocket | Open 25% of the grid | Open more than half the grid across every rank |
 | Mixed | Add and remove the same footprint, giving zero net change | Close and open disjoint local `8x8x8` pockets | Close/open disjoint components totaling about 25% | Both passes cross every rank and affect about 75% of the grid |
 
 The mixed fixtures commit both occupancy directions before either connectivity
 pass runs. They therefore measure one atomic KMC batch, not sequentially
-observable deposition and desorption events.
+observable adsorption and desorption events.
 
 ## Repeated timing results
 
@@ -69,7 +69,7 @@ Each cell is `incremental ms / forced-full ms (full/incremental)`. A ratio
 above 1 means incremental repair is faster; a ratio below 1 means the affected
 work is large enough that full classification is faster.
 
-### Deposition
+### Adsorption
 
 | Ranks | Baseline | Best | Medium | Worst |
 |---:|---:|---:|---:|---:|
@@ -87,7 +87,7 @@ work is large enough that full classification is faster.
 | 4 | 0.002294 / 2.192853 (955.76x) | 0.144656 / 33.886496 (234.26x) | 35.841053 / 48.264402 (1.35x) | 123.751516 / 83.666738 (0.68x) |
 | 8 | 0.003620 / 1.321586 (365.06x) | 0.187110 / 20.889174 (111.64x) | 25.851777 / 34.164988 (1.32x) | 87.581191 / 61.100452 (0.70x) |
 
-### Mixed deposition and desorption
+### Mixed adsorption and desorption
 
 | Ranks | Baseline | Best | Medium | Worst |
 |---:|---:|---:|---:|---:|
@@ -104,7 +104,7 @@ completed full classification.
 
 ## Scaling and work
 
-| Case | Deposition 1-to-8-rank speedup | Desorption speedup | Mixed speedup |
+| Case | Adsorption 1-to-8-rank speedup | Desorption speedup | Mixed speedup |
 |---|---:|---:|---:|
 | Best, local fixed work | 0.81x | 0.65x | 0.89x |
 | Medium, distributed | 5.09x | 3.47x | 5.41x |
@@ -118,7 +118,7 @@ The 8-rank worst-case traversal checks were:
 
 | Change kind | Closing visited / relabeled | Opening visited / relabeled | Participating ranks | Rounds (close/open) | Sent entries (close/open) |
 |---|---:|---:|---:|---:|---:|
-| Deposition | 1,644,288 / 1,572,864 | 0 / 0 | 8 / 0 | 6 / 0 | 179,968 / 0 |
+| Adsorption | 1,644,288 / 1,572,864 | 0 / 0 | 8 / 0 | 6 / 0 | 179,968 / 0 |
 | Desorption | 0 / 0 | 1,572,865 / 1,572,865 | 0 / 8 | 0 / 5 | 0 / 172,033 |
 | Mixed | 857,856 / 786,432 | 774,145 / 774,145 | 8 / 8 | 6 / 7 | 93,952 / 84,674 |
 
@@ -127,7 +127,7 @@ Worst desorption opens 1,572,865 voxels, more than half the grid. Worst mixed
 closes 786,432 and opens 774,145 voxels; both passes visit every rank.
 
 Summed peak RSS ranges from about 116 MB for the paired one-rank baseline to
-493 MB for the paired eight-rank deposition worst case. These values include
+493 MB for the paired eight-rank adsorption worst case. These values include
 two simultaneously resident benchmark grids—incremental and forced-full—and
 must not be interpreted as the memory requirement of one production grid.
 
@@ -150,11 +150,11 @@ shows very low update cost and avoids a global scan. The all-rank fixtures are
 safety and scalability tests, not an assertion that incremental repair should
 win when most of the grid changes.
 
-## Historical Phase R1 deposition comparison
+## Historical Phase R1 adsorption comparison
 
-Phase R1 measured the legacy deposition path immediately before and after
+Phase R1 measured the adsorption-specific path immediately before and after
 adding reversible blocker counts. Those same-grid results are retained here as
-the deposition regression reference:
+the adsorption regression reference:
 
 | MPI ranks | Detection before/after (us) | Best before/after (ms) | Medium before/after (ms) | Worst before/after (ms) |
 |---:|---:|---:|---:|---:|
@@ -163,7 +163,7 @@ the deposition regression reference:
 | 4 | 0.945 / 0.940 | 1.292 / 1.284 | 69.74 / 70.83 | 140.59 / 142.12 |
 | 8 | 1.345 / 1.383 | 0.836 / 0.874 | 45.30 / 45.50 | 101.21 / 102.20 |
 
-The Phase R1 before/after result showed no material deposition regression.
+The Phase R1 before/after result showed no material adsorption regression.
 Current R6 timings use the unified R5 `apply_atom_changes()` path and a paired
 incremental/full harness, so they are reported separately rather than treated
 as a controlled continuation of that historical before/after experiment.

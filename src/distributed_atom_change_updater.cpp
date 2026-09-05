@@ -392,7 +392,7 @@ DistributedAtomChangeUpdater::apply_atom_changes(
 }
 
 DistributedAtomChangeUpdateResult
-DistributedAtomChangeUpdater::apply_deposition(
+DistributedAtomChangeUpdater::apply_adsorption(
     DistributedGasGrid& gas_grid,
     AtomView added_atoms)
 {

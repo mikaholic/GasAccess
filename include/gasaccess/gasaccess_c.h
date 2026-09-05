@@ -121,7 +121,7 @@ typedef struct ga_classification_summary {
     ga_voxel_id closed_void_count;
 } ga_classification_summary;
 
-typedef struct ga_deposition_update_summary {
+typedef struct ga_adsorption_update_summary {
     ga_voxel_id newly_solid_count;
     size_t changed_voxel_count;
     /* Repair traversal work and the number of gas voxels relabeled closed. */
@@ -131,7 +131,7 @@ typedef struct ga_deposition_update_summary {
     uint8_t full_reclassification_performed;
     uint8_t affected_region_repair_performed;
     ga_classification_summary classification;
-} ga_deposition_update_summary;
+} ga_adsorption_update_summary;
 
 typedef struct ga_atom_change_update_summary {
     ga_voxel_id blocker_count_changed_voxel_count;
@@ -190,19 +190,19 @@ ga_status ga_classify_exterior(
     ga_grid* grid,
     ga_classification_summary* out_summary);
 
-/* The grid must already be fully classified. ga_apply_deposition copies the
+/* The grid must already be fully classified. ga_apply_adsorption copies the
  * small event batch and returns an owned result handle. */
-ga_status ga_apply_deposition(
+ga_status ga_apply_adsorption(
     ga_grid* grid,
-    const ga_atom* deposited_atoms,
+    const ga_atom* adsorbed_atoms,
     size_t atom_count,
     double precursor_radius,
     ga_update_result** out_update_result);
-/* Equivalent to ga_apply_deposition with an explicit incremental or full
+/* Equivalent to ga_apply_adsorption with an explicit incremental or full
  * reference repair mode. */
-ga_status ga_apply_deposition_with_mode(
+ga_status ga_apply_adsorption_with_mode(
     ga_grid* grid,
-    const ga_atom* deposited_atoms,
+    const ga_atom* adsorbed_atoms,
     size_t atom_count,
     double precursor_radius,
     ga_connectivity_repair_mode repair_mode,
@@ -210,7 +210,7 @@ ga_status ga_apply_deposition_with_mode(
 void ga_update_result_destroy(ga_update_result* update_result);
 ga_status ga_update_result_get_summary(
     const ga_update_result* update_result,
-    ga_deposition_update_summary* out_summary);
+    ga_adsorption_update_summary* out_summary);
 /* The returned array is sorted, unique, and valid until the result is
  * destroyed. It may be null when out_count is zero. */
 ga_status ga_update_result_get_changed_voxels(
@@ -218,7 +218,7 @@ ga_status ga_update_result_get_changed_voxels(
     const ga_voxel_id** out_voxel_ids,
     size_t* out_count);
 
-/* Reversible updates return a separate result type so the existing deposition
+/* Reversible updates return a separate result type so the existing adsorption
  * ABI and result contract remain unchanged. The grid must be classified. */
 ga_status ga_apply_desorption(
     ga_grid* grid,

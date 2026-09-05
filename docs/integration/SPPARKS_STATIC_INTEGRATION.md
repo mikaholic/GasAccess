@@ -83,7 +83,7 @@ the collective update:
 ```cpp
 gasaccess::AtomChangeEventBuffer events;
 for (const auto& atom : synchronized_added_events) {
-    events.record_deposition(atom);
+    events.record_adsorption(atom);
 }
 for (const auto& atom : synchronized_removed_events) {
     events.record_desorption(atom);  // old position and radius
@@ -102,9 +102,9 @@ sector-safe events before synchronizing. Every rank must enter the collective
 in the same order, including ranks with empty buffers. Accessibility queries
 remain local and communication-free after the updater returns.
 
-The existing `DistributedDepositionUpdater` and
+The existing `DistributedAdsorptionUpdater` and
 `DistributedDesorptionUpdater` interfaces remain available. The unified
-updater also provides `apply_deposition()` and `apply_desorption()` convenience
+updater also provides `apply_adsorption()` and `apply_desorption()` convenience
 methods for applications that prefer one persistent update object.
 
 ## Mock application
@@ -124,7 +124,7 @@ They cover:
 - the same trench with a cap, whose internal wall probes are inaccessible;
 - a 128 x 128 x 64 solid slab containing 1,048,576 atoms beneath an equally
   sized gas region.
-- a reversible six-step tKMC sequence containing deposition, desorption, an
+- a reversible six-step tKMC sequence containing adsorption, desorption, an
   atom move, a mixed batch, an empty batch, and a no-net-change batch.
 
 The reversible sequence synchronizes added and old removed-event buffers

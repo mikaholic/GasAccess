@@ -63,7 +63,7 @@ public:
         const AtomChangeBatch& atom_changes);
 
     // Collective convenience wrappers for pure event batches.
-    DistributedAtomChangeUpdateResult apply_deposition(
+    DistributedAtomChangeUpdateResult apply_adsorption(
         DistributedGasGrid& gas_grid,
         AtomView added_atoms);
     DistributedAtomChangeUpdateResult apply_desorption(

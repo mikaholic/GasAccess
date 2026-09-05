@@ -6,8 +6,8 @@ Cartesian voxel grid. Development follows the recorded phased plan in
 
 The current implementation includes the original serial and distributed
 geometry/connectivity/query baseline, distributed incremental repair for
-monotonic deposition, and Phase R3 serial and distributed incremental
-desorption repair. Phase R4 adds atomic mixed deposition/desorption repair in
+monotonic adsorption, and Phase R3 serial and distributed incremental
+desorption repair. Phase R4 adds atomic mixed adsorption/desorption repair in
 both the serial and distributed C++ layers. Phase R5 exposes the reversible
 path through the C API and a tKMC-oriented owning event buffer.
 
@@ -42,7 +42,7 @@ path through the C API and a tKMC-oriented owning event buffer.
 - atomic mixed atom-change batches with incremental closing-then-opening
   repair and one final MPI ghost-state synchronization;
 - an owning KMC event buffer that retains added and old removed-atom records;
-- an exception-safe C99 API with separate legacy-deposition and reversible
+- an exception-safe C99 API with separate adsorption-specific and reversible
   update-result handles;
 - deterministic open-trench, sealed-trench, and bulk workload generation;
 - machine-readable correctness checksums, timings, and memory reporting;
@@ -115,7 +115,7 @@ matrix is provided by `build/gasaccess_mpi_efficiency_driver`.
 - `build/gasaccess_accessibility_query_tests`
 - `build/gasaccess_kmc_query_integration_tests`
 - `build/gasaccess_c_api_tests`
-- `build/gasaccess_deposition_updater_tests`
+- `build/gasaccess_adsorption_updater_tests`
 - `build/gasaccess_desorption_updater_tests`
 - `build/gasaccess_atom_change_updater_tests`
 - `build/gasaccess_local_topology_filter_tests`
@@ -136,7 +136,7 @@ To display every individual test-group result directly:
 ./build/gasaccess_accessibility_query_tests
 ./build/gasaccess_kmc_query_integration_tests
 ./build/gasaccess_c_api_tests
-./build/gasaccess_deposition_updater_tests
+./build/gasaccess_adsorption_updater_tests
 ./build/gasaccess_desorption_updater_tests
 ./build/gasaccess_atom_change_updater_tests
 ./build/gasaccess_local_topology_filter_tests
@@ -202,7 +202,7 @@ contract and 1/2/4/8-rank correctness results are recorded in
 
 ## Atomic mixed atom changes
 
-Phase R4 accepts deposited and desorbed atoms in one transaction. Removed
+Phase R4 accepts adsorbed and desorbed atoms in one transaction. Removed
 records use their old positions and radii; an atom move is represented by one
 old record and one new record in the same batch:
 
@@ -238,7 +238,7 @@ keeps old desorption records valid through the update:
 
 ```cpp
 gasaccess::AtomChangeEventBuffer events;
-events.record_deposition(added_atom);
+events.record_adsorption(added_atom);
 events.record_desorption(removed_atom_at_old_position);
 events.record_move(old_atom, new_atom);
 
@@ -255,8 +255,8 @@ event buffer is empty.
 
 ## Reversible C API
 
-The C99 interface preserves `ga_apply_deposition()` and its existing result
-contract. Reversible clients use `ga_atom_change_batch` and the separate
+The C99 interface exposes `ga_apply_adsorption()` with an adsorption-specific
+result contract. Reversible clients use `ga_atom_change_batch` and the separate
 `ga_atom_change_result` lifecycle:
 
 ```c
@@ -290,7 +290,7 @@ mpiexec -n 4 ./build/gasaccess_spparks_mock_driver --scenario sealed-trench
 mpiexec -n 4 ./build/gasaccess_spparks_mock_driver --scenario million-slab
 ```
 
-The driver does not invoke deposition or a KMC event. It adds a static atom
+The driver does not invoke adsorption or a KMC event. It adds a static atom
 structure, synchronizes mock SPPARKS-style ghosts, constructs and classifies
 the gas grid, then calls
 `query.is_site_accessible(atom_position)` for each owned atom. Phase 14 timing
@@ -300,7 +300,7 @@ results are recorded in
 ## MPI lifecycle efficiency driver
 
 The repeated efficiency driver covers KMC initialization, cached coordinate
-queries, and collective deposition, desorption, or mixed atom-change repair:
+queries, and collective adsorption, desorption, or mixed atom-change repair:
 
 ```sh
 mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
@@ -321,8 +321,8 @@ mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
 Fast operations repeat until the requested cumulative measured duration is
 reached. The primary result is average slowest-rank operation time. Each repair
 case is checked against a paired forced-full reclassification, and closing and
-opening traversal metrics are reported separately. Deposition remains the
-default `--change-kind` for compatibility. The original lifecycle driver is
+opening traversal metrics are reported separately. Adsorption is the default
+`--change-kind`. The original lifecycle driver is
 documented in
 [`docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md`](docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md);
 the complete reversible matrix and repeated results are in
@@ -336,7 +336,7 @@ Display all driver options:
 ./build/gasaccess_reference_driver --help
 ```
 
-Run the default open-, sealed-, and deposition-driven pinch-off fixtures:
+Run the default open-, sealed-, and adsorption-driven pinch-off fixtures:
 
 ```sh
 ./build/gasaccess_reference_driver --scenario open-trench
@@ -356,7 +356,7 @@ Run a deterministic million-atom synthetic structure:
 
 The output uses one `key=value` field per line so it can be archived or parsed
 by benchmark automation. Timings cover grid construction, atom generation,
-voxelization, initial classification, cached queries, and deposition updates.
+voxelization, initial classification, cached queries, and adsorption updates.
 It also reports median, p95, and maximum update latency separated into locally
 safe, affected-region repair, and full-reference paths. Memory output separates
 the exact one-byte-per-voxel persistent state from a traversal-frontier

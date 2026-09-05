@@ -1,6 +1,6 @@
 #include "gasaccess/accessibility_query.hpp"
-#include "gasaccess/deposition_updater.hpp"
-#include "gasaccess/distributed_deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
+#include "gasaccess/distributed_adsorption_updater.hpp"
 #include "gasaccess/distributed_exterior_classifier.hpp"
 #include "gasaccess/exterior_classifier.hpp"
 #include "gasaccess/gas_grid.hpp"
@@ -27,9 +27,9 @@ namespace {
 using gasaccess::Atom;
 using gasaccess::AtomView;
 using gasaccess::ConnectivityRepairMode;
-using gasaccess::DepositionUpdater;
-using gasaccess::DistributedDepositionUpdateResult;
-using gasaccess::DistributedDepositionUpdater;
+using gasaccess::AdsorptionUpdater;
+using gasaccess::DistributedAdsorptionUpdateResult;
+using gasaccess::DistributedAdsorptionUpdater;
 using gasaccess::DistributedExteriorClassifier;
 using gasaccess::DistributedGasAccessibilityQuery;
 using gasaccess::DistributedGasGrid;
@@ -234,7 +234,7 @@ void verify_state_and_queries(
     const GasGrid& serial_grid,
     const DistributedGasGrid& incremental_grid,
     const DistributedGasGrid& full_grid,
-    const DistributedDepositionUpdateResult& incremental_result)
+    const DistributedAdsorptionUpdateResult& incremental_result)
 {
     const auto& range = incremental_grid.owned_range();
     const auto& grid_spec = incremental_grid.global_grid_spec();
@@ -335,7 +335,7 @@ void verify_state_and_queries(
 }
 
 void verify_expected_path(
-    const DistributedDepositionUpdateResult& result,
+    const DistributedAdsorptionUpdateResult& result,
     ExpectedPath expected_path)
 {
     if (expected_path == ExpectedPath::Unspecified) {
@@ -363,15 +363,15 @@ void run_sequence(
     const GridSpec& grid_spec,
     const GridDimensions& process_grid,
     const std::vector<VoxelCoord>& initial_solids,
-    const std::vector<std::vector<VoxelCoord>>& deposition_events,
+    const std::vector<std::vector<VoxelCoord>>& adsorption_events,
     const std::vector<ExpectedPath>& expected_paths,
     int rank,
     const std::function<void(
-        const DistributedDepositionUpdateResult&,
-        const gasaccess::DepositionUpdateResult&)>& result_verifier = {})
+        const DistributedAdsorptionUpdateResult&,
+        const gasaccess::AdsorptionUpdateResult&)>& result_verifier = {})
 {
     REQUIRE(expected_paths.empty()
-        || expected_paths.size() == deposition_events.size());
+        || expected_paths.size() == adsorption_events.size());
     GasGrid serial_grid(grid_spec);
     DistributedGasGrid incremental_grid(
         grid_spec,
@@ -388,30 +388,30 @@ void run_sequence(
     incremental_classifier.classify(incremental_grid);
     full_classifier.classify(full_grid);
 
-    DepositionUpdater serial_updater(
+    AdsorptionUpdater serial_updater(
         0.0,
         ConnectivityRepairMode::AffectedRegion);
-    DistributedDepositionUpdater incremental_updater(
+    DistributedAdsorptionUpdater incremental_updater(
         0.0,
         ConnectivityRepairMode::AffectedRegion);
-    DistributedDepositionUpdater full_updater(
+    DistributedAdsorptionUpdater full_updater(
         0.0,
         ConnectivityRepairMode::FullReclassification);
 
     for (std::size_t event_index = 0;
-         event_index < deposition_events.size();
+         event_index < adsorption_events.size();
          ++event_index) {
         const auto atoms = atoms_for_voxels(
             serial_grid,
-            deposition_events[event_index]);
+            adsorption_events[event_index]);
         const AtomView atom_view{atoms.data(), atoms.size()};
-        const auto serial_result = serial_updater.apply_deposition(
+        const auto serial_result = serial_updater.apply_adsorption(
             serial_grid,
             atom_view);
-        const auto incremental_result = incremental_updater.apply_deposition(
+        const auto incremental_result = incremental_updater.apply_adsorption(
             incremental_grid,
             atom_view);
-        const auto full_result = full_updater.apply_deposition(
+        const auto full_result = full_updater.apply_adsorption(
             full_grid,
             atom_view);
 
@@ -563,8 +563,8 @@ void test_dominant_cavity_repair_reaches_every_rank(int rank, int size)
         {ExpectedPath::DistributedRepair},
         rank,
         [size, expected_closed, expected_changed](
-            const DistributedDepositionUpdateResult& distributed_result,
-            const gasaccess::DepositionUpdateResult& serial_result) {
+            const DistributedAdsorptionUpdateResult& distributed_result,
+            const gasaccess::AdsorptionUpdateResult& serial_result) {
             REQUIRE(serial_result.repair_closed_voxel_count == expected_closed);
             REQUIRE(distributed_result.global_newly_solid_count == 1);
             REQUIRE(!distributed_result.used_full_reclassification());
@@ -609,7 +609,7 @@ void test_dominant_cavity_repair_reaches_every_rank(int rank, int size)
         });
 }
 
-void test_deterministic_deposition_sequence(int rank, int size)
+void test_deterministic_adsorption_sequence(int rank, int size)
 {
     const auto grid_spec = make_grid_spec();
     std::vector<VoxelCoord> plane_voxels;
@@ -657,8 +657,8 @@ int main(int argc, char* argv[])
         {"dominant cavity repair reaches every rank", [&]() {
              test_dominant_cavity_repair_reaches_every_rank(rank, size);
          }},
-        {"deterministic deposition sequence", [&]() {
-             test_deterministic_deposition_sequence(rank, size);
+        {"deterministic adsorption sequence", [&]() {
+             test_deterministic_adsorption_sequence(rank, size);
          }}
     };
 

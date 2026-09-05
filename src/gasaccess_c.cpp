@@ -3,7 +3,7 @@
 #include "gasaccess/accessibility_query.hpp"
 #include "gasaccess/atom_change_updater.hpp"
 #include "gasaccess/atom_voxelizer.hpp"
-#include "gasaccess/deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
 #include "gasaccess/exterior_classifier.hpp"
 #include "gasaccess/gas_grid.hpp"
 
@@ -25,12 +25,12 @@ struct ga_grid {
     }
 
     gasaccess::GasGrid gas_grid;
-    std::unique_ptr<gasaccess::DepositionUpdater> deposition_updater;
+    std::unique_ptr<gasaccess::AdsorptionUpdater> adsorption_updater;
     std::unique_ptr<gasaccess::AtomChangeUpdater> atom_change_updater;
 };
 
 struct ga_update_result {
-    gasaccess::DepositionUpdateResult update_result;
+    gasaccess::AdsorptionUpdateResult update_result;
 };
 
 struct ga_atom_change_result {
@@ -205,19 +205,19 @@ ga_accessibility_repair_kind convert_repair_kind(
     throw std::logic_error("invalid atom-change repair kind");
 }
 
-gasaccess::DepositionUpdater& deposition_updater(
+gasaccess::AdsorptionUpdater& adsorption_updater(
     ga_grid& grid,
     double precursor_radius,
     gasaccess::ConnectivityRepairMode repair_mode)
 {
-    if (!grid.deposition_updater
-        || grid.deposition_updater->precursor_radius() != precursor_radius
-        || grid.deposition_updater->repair_mode() != repair_mode) {
-        grid.deposition_updater = std::make_unique<gasaccess::DepositionUpdater>(
+    if (!grid.adsorption_updater
+        || grid.adsorption_updater->precursor_radius() != precursor_radius
+        || grid.adsorption_updater->repair_mode() != repair_mode) {
+        grid.adsorption_updater = std::make_unique<gasaccess::AdsorptionUpdater>(
             precursor_radius,
             repair_mode);
     }
-    return *grid.deposition_updater;
+    return *grid.adsorption_updater;
 }
 
 gasaccess::AtomChangeUpdater& atom_change_updater(
@@ -431,25 +431,25 @@ ga_status ga_classify_exterior(
     });
 }
 
-ga_status ga_apply_deposition(
+ga_status ga_apply_adsorption(
     ga_grid* grid,
-    const ga_atom* deposited_atoms,
+    const ga_atom* adsorbed_atoms,
     size_t atom_count,
     double precursor_radius,
     ga_update_result** out_update_result)
 {
-    return ga_apply_deposition_with_mode(
+    return ga_apply_adsorption_with_mode(
         grid,
-        deposited_atoms,
+        adsorbed_atoms,
         atom_count,
         precursor_radius,
         GA_CONNECTIVITY_REPAIR_AFFECTED_REGION,
         out_update_result);
 }
 
-ga_status ga_apply_deposition_with_mode(
+ga_status ga_apply_adsorption_with_mode(
     ga_grid* grid,
-    const ga_atom* deposited_atoms,
+    const ga_atom* adsorbed_atoms,
     size_t atom_count,
     double precursor_radius,
     ga_connectivity_repair_mode repair_mode,
@@ -462,13 +462,13 @@ ga_status ga_apply_deposition_with_mode(
         require_pointer(grid, "grid pointer is null");
         require_pointer(out_update_result, "output update-result pointer is null");
         const auto converted_repair_mode = convert_repair_mode(repair_mode);
-        validate_c_atoms(*grid, deposited_atoms, atom_count, precursor_radius);
-        const auto converted_atoms = convert_c_atoms(deposited_atoms, atom_count);
+        validate_c_atoms(*grid, adsorbed_atoms, atom_count, precursor_radius);
+        const auto converted_atoms = convert_c_atoms(adsorbed_atoms, atom_count);
         auto update_result = std::make_unique<ga_update_result>();
-        update_result->update_result = deposition_updater(
+        update_result->update_result = adsorption_updater(
             *grid,
             precursor_radius,
-            converted_repair_mode).apply_deposition(
+            converted_repair_mode).apply_adsorption(
                 grid->gas_grid,
                 {converted_atoms.data(), converted_atoms.size()});
         *out_update_result = update_result.release();
@@ -482,11 +482,11 @@ void ga_update_result_destroy(ga_update_result* update_result)
 
 ga_status ga_update_result_get_summary(
     const ga_update_result* update_result,
-    ga_deposition_update_summary* out_summary)
+    ga_adsorption_update_summary* out_summary)
 {
     return protect_c_api([&]() {
         require_pointer(update_result, "update-result pointer is null");
-        require_pointer(out_summary, "output deposition-summary pointer is null");
+        require_pointer(out_summary, "output adsorption-summary pointer is null");
         const auto& result = update_result->update_result;
         out_summary->newly_solid_count = result.newly_solid_count;
         out_summary->changed_voxel_count = result.changed_voxel_ids.size();

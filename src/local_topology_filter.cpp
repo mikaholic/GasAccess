@@ -56,7 +56,7 @@ void validate_removed_voxels(
         if (removed_voxel.previous_state != GasState::OutsideAccessible
             && removed_voxel.previous_state != GasState::ClosedVoid) {
             throw std::invalid_argument(
-                "removed voxel was not classified as empty before deposition");
+                "removed voxel was not classified as empty before adsorption");
         }
     }
 }

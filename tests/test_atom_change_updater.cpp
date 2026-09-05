@@ -419,13 +419,13 @@ void test_pure_direction_paths()
     ExteriorClassifier{}.classify(full_grid);
     const auto atom = atoms_for_voxels(incremental_grid, {{4, 3, 3}});
 
-    const auto deposition = apply_and_compare(
+    const auto adsorption = apply_and_compare(
         incremental_grid,
         full_grid,
         {{atom.data(), atom.size()}, {nullptr, 0}},
         AccessibilityRepairKind::Closing);
-    REQUIRE(deposition.incremental.newly_solid_count == 1);
-    REQUIRE(deposition.incremental.newly_gas_count == 0);
+    REQUIRE(adsorption.incremental.newly_solid_count == 1);
+    REQUIRE(adsorption.incremental.newly_gas_count == 0);
 
     const auto desorption = apply_and_compare(
         incremental_grid,
@@ -476,13 +476,13 @@ void test_owning_event_buffer_and_convenience_wrappers()
     REQUIRE(gas_grid.gas_state({4, 0, 0})
         == GasState::OutsideAccessible);
 
-    const Atom deposited_atom{gas_grid.voxel_center({3, 0, 0}), 0.0};
+    const Atom adsorbed_atom{gas_grid.voxel_center({3, 0, 0}), 0.0};
     event_buffer.clear();
-    event_buffer.record_deposition(deposited_atom);
-    const auto deposition_result = updater.apply_deposition(
+    event_buffer.record_adsorption(adsorbed_atom);
+    const auto adsorption_result = updater.apply_adsorption(
         gas_grid,
         event_buffer.added_atoms());
-    REQUIRE(deposition_result.repair_kind == AccessibilityRepairKind::Closing);
+    REQUIRE(adsorption_result.repair_kind == AccessibilityRepairKind::Closing);
     REQUIRE(gas_grid.gas_state({3, 0, 0}) == GasState::Solid);
 
     REQUIRE_THROWS_AS(

@@ -53,7 +53,7 @@ void AtomChangeEventBuffer::reserve(
     removed_atoms_.reserve(removed_atom_capacity);
 }
 
-void AtomChangeEventBuffer::record_deposition(const Atom& added_atom)
+void AtomChangeEventBuffer::record_adsorption(const Atom& added_atom)
 {
     added_atoms_.push_back(added_atom);
 }

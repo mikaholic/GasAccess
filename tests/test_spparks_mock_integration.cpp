@@ -151,7 +151,7 @@ void append_mock_app_events(
             {app.xyz[index][0], app.xyz[index][1], app.xyz[index][2]},
             app.radius[index]};
         if (additions) {
-            event_buffer.record_deposition(atom);
+            event_buffer.record_adsorption(atom);
         } else {
             event_buffer.record_desorption(atom);
         }
@@ -192,7 +192,7 @@ AtomChangeEventBuffer global_event_step(const MockKmcStep& step)
 {
     AtomChangeEventBuffer event_buffer;
     for (const auto& atom : step.added_atoms) {
-        event_buffer.record_deposition({atom.position, atom.radius});
+        event_buffer.record_adsorption({atom.position, atom.radius});
     }
     for (const auto& atom : step.removed_atoms) {
         event_buffer.record_desorption({atom.position, atom.radius});
@@ -343,10 +343,10 @@ void test_reversible_tkmc_event_sequence(int process_count)
         DistributedAtomChangeUpdateResult distributed_result{};
         AtomChangeUpdateResult serial_result{};
         if (step_index == 0) {
-            distributed_result = distributed_updater.apply_deposition(
+            distributed_result = distributed_updater.apply_adsorption(
                 distributed_grid,
                 distributed_events.added_atoms());
-            serial_result = serial_updater.apply_deposition(
+            serial_result = serial_updater.apply_adsorption(
                 serial_grid,
                 serial_events.added_atoms());
         } else if (step_index == 1) {

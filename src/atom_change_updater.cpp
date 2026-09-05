@@ -208,7 +208,7 @@ AtomChangeUpdateResult AtomChangeUpdater::apply_atom_changes(
     return result;
 }
 
-AtomChangeUpdateResult AtomChangeUpdater::apply_deposition(
+AtomChangeUpdateResult AtomChangeUpdater::apply_adsorption(
     GasGrid& gas_grid,
     AtomView added_atoms) const
 {

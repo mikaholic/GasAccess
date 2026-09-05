@@ -1,5 +1,5 @@
 #include "gasaccess/accessibility_query.hpp"
-#include "gasaccess/deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
 #include "gasaccess/desorption_updater.hpp"
 #include "gasaccess/opening_region_repair.hpp"
 
@@ -22,7 +22,7 @@ using gasaccess::Atom;
 using gasaccess::AtomView;
 using gasaccess::AtomVoxelizer;
 using gasaccess::ClassificationSummary;
-using gasaccess::DepositionUpdater;
+using gasaccess::AdsorptionUpdater;
 using gasaccess::DesorptionRepairMode;
 using gasaccess::DesorptionUpdateResult;
 using gasaccess::DesorptionUpdater;
@@ -476,7 +476,7 @@ void test_opening_crosses_each_periodic_seam()
     }
 }
 
-void test_random_deposition_desorption_sequences_match_rebuild()
+void test_random_adsorption_desorption_sequences_match_rebuild()
 {
     std::mt19937_64 random_engine(0xbb67ae8584caa73bULL);
     std::uniform_int_distribution<int> x_distribution(0, 4);
@@ -490,7 +490,7 @@ void test_random_deposition_desorption_sequences_match_rebuild()
     grid_spec.reservoir_faces.z_high = true;
     GasGrid actual_grid(grid_spec);
     ExteriorClassifier{}.classify(actual_grid);
-    const DepositionUpdater deposition_updater(0.0);
+    const AdsorptionUpdater adsorption_updater(0.0);
     const DesorptionUpdater desorption_updater(0.0);
     const AtomVoxelizer voxelizer(0.0);
     std::vector<Atom> active_atoms;
@@ -506,7 +506,7 @@ void test_random_deposition_desorption_sequences_match_rebuild()
                 z_distribution(random_engine)
             };
             const Atom atom{actual_grid.voxel_center(coordinate), 0.0};
-            const auto result = deposition_updater.apply_deposition(
+            const auto result = adsorption_updater.apply_adsorption(
                 actual_grid,
                 {&atom, 1});
             active_atoms.push_back(atom);
@@ -571,8 +571,8 @@ int main()
          test_desorption_exposes_explicit_source},
         {"opening crosses periodic seams",
          test_opening_crosses_each_periodic_seam},
-        {"random deposition/desorption sequences match rebuild",
-         test_random_deposition_desorption_sequences_match_rebuild}
+        {"random adsorption/desorption sequences match rebuild",
+         test_random_adsorption_desorption_sequences_match_rebuild}
     };
 
     std::size_t failure_count = 0;

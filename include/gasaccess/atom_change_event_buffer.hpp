@@ -21,7 +21,7 @@ public:
     void reserve(
         std::size_t added_atom_capacity,
         std::size_t removed_atom_capacity);
-    void record_deposition(const Atom& added_atom);
+    void record_adsorption(const Atom& added_atom);
     void record_desorption(const Atom& removed_atom);
     void record_move(const Atom& old_atom, const Atom& new_atom);
     void append(const AtomChangeBatch& atom_changes);

@@ -1,5 +1,5 @@
 #include "gasaccess/affected_region_repair.hpp"
-#include "gasaccess/deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
 #include "gasaccess/exterior_classifier.hpp"
 
 #include <cstddef>
@@ -18,8 +18,8 @@ namespace {
 using gasaccess::AffectedRegionRepair;
 using gasaccess::Atom;
 using gasaccess::ConnectivityRepairMode;
-using gasaccess::DepositionUpdateResult;
-using gasaccess::DepositionUpdater;
+using gasaccess::AdsorptionUpdateResult;
+using gasaccess::AdsorptionUpdater;
 using gasaccess::ExteriorClassifier;
 using gasaccess::GasGrid;
 using gasaccess::GasState;
@@ -88,9 +88,9 @@ void set_solid(GasGrid& gas_grid, const VoxelCoord& voxel_coord)
 
 void require_same_result(
     const GasGrid& actual_grid,
-    const DepositionUpdateResult& actual_result,
+    const AdsorptionUpdateResult& actual_result,
     const GasGrid& reference_grid,
-    const DepositionUpdateResult& reference_result)
+    const AdsorptionUpdateResult& reference_result)
 {
     REQUIRE(actual_result.newly_solid_count == reference_result.newly_solid_count);
     REQUIRE(actual_result.changed_voxel_ids == reference_result.changed_voxel_ids);
@@ -110,16 +110,16 @@ void apply_and_compare(
     GasGrid& actual_grid,
     GasGrid& reference_grid,
     const std::vector<Atom>& atoms,
-    DepositionUpdateResult& actual_result)
+    AdsorptionUpdateResult& actual_result)
 {
-    const DepositionUpdater actual_updater(0.0);
-    const DepositionUpdater reference_updater(
+    const AdsorptionUpdater actual_updater(0.0);
+    const AdsorptionUpdater reference_updater(
         0.0,
         ConnectivityRepairMode::FullReclassification);
-    actual_result = actual_updater.apply_deposition(
+    actual_result = actual_updater.apply_adsorption(
         actual_grid,
         {atoms.data(), atoms.size()});
-    const auto reference_result = reference_updater.apply_deposition(
+    const auto reference_result = reference_updater.apply_adsorption(
         reference_grid,
         {atoms.data(), atoms.size()});
     REQUIRE(reference_result.used_full_reclassification());
@@ -170,7 +170,7 @@ void test_trench_cavity_repair_is_local()
         {{4.5, 0.5, 7.5}, 0.0},
         {{5.5, 0.5, 7.5}, 0.0}
     };
-    DepositionUpdateResult result{};
+    AdsorptionUpdateResult result{};
     apply_and_compare(actual_grid, reference_grid, roof_atoms, result);
 
     REQUIRE(result.used_affected_region_repair());
@@ -191,7 +191,7 @@ void test_removing_only_source_closes_all_remaining_gas()
     ExteriorClassifier{}.classify(reference_grid);
 
     const std::vector<Atom> atoms{{{2.5, 0.5, 0.5}, 0.0}};
-    DepositionUpdateResult result{};
+    AdsorptionUpdateResult result{};
     apply_and_compare(actual_grid, reference_grid, atoms, result);
     REQUIRE(result.used_affected_region_repair());
     REQUIRE(result.repair_closed_voxel_count == 4);
@@ -208,7 +208,7 @@ void test_second_source_preserves_connectivity()
     ExteriorClassifier{}.classify(reference_grid);
 
     const std::vector<Atom> atoms{{{0.5, 0.5, 0.5}, 0.0}};
-    DepositionUpdateResult result{};
+    AdsorptionUpdateResult result{};
     apply_and_compare(actual_grid, reference_grid, atoms, result);
     REQUIRE(result.used_affected_region_repair());
     REQUIRE(result.repair_closed_voxel_count == 0);
@@ -228,7 +228,7 @@ void test_multi_voxel_cut_closes_only_middle_component()
         {{3.5, 0.5, 0.5}, 0.0},
         {{7.5, 0.5, 0.5}, 0.0}
     };
-    DepositionUpdateResult result{};
+    AdsorptionUpdateResult result{};
     apply_and_compare(actual_grid, reference_grid, atoms, result);
     REQUIRE(result.used_affected_region_repair());
     REQUIRE(result.repair_closed_voxel_count == 3);
@@ -252,7 +252,7 @@ void test_periodic_seam_component_repair()
     ExteriorClassifier{}.classify(reference_grid);
 
     const std::vector<Atom> atoms{{{6.5, 0.5, 0.5}, 0.0}};
-    DepositionUpdateResult result{};
+    AdsorptionUpdateResult result{};
     apply_and_compare(actual_grid, reference_grid, atoms, result);
     REQUIRE(result.used_affected_region_repair());
     REQUIRE(result.repair_closed_voxel_count == 3);

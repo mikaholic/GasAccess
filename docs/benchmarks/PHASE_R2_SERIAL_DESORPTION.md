@@ -52,7 +52,7 @@ The Phase R2 test executable covers:
 - direct exposure of an explicit reservoir source;
 - opening propagation across each periodic x, y, and z seam;
 - the local 11-of-10,000-voxel traversal fixture; and
-- 160 deterministic deposition/desorption events compared after every event
+- 160 deterministic adsorption/desorption events compared after every event
   with fresh atom voxelization and full `ExteriorClassifier` reconstruction.
 
 The randomized differential check compares blocker counts, every gas state,
@@ -60,14 +60,14 @@ all four state counts, sorted changed-voxel IDs, classification summaries, and
 cached accessibility-query results.
 
 The final Release MPI-enabled build passes all 61 registered CTest cases. This
-includes the unchanged deposition tests and the existing 1/2/4/8-rank MPI and
+includes the unchanged adsorption tests and the existing 1/2/4/8-rank MPI and
 efficiency matrix.
 
 ## Scope boundary
 
 Phase R2 is deliberately serial. It does not yet provide distributed opening
 frontiers, MPI desorption synchronization, incremental mixed
-deposition/desorption repair, or C API exposure. Distributed desorption repair
+adsorption/desorption repair, or C API exposure. Distributed desorption repair
 is Phase R3; mixed-event repair follows in Phase R4.
 
 ## Conclusion

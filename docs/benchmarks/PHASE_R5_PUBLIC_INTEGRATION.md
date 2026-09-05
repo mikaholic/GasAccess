@@ -3,26 +3,26 @@
 Date: 2026-09-05
 
 Phase R5 promotes the reversible atom-change path from an internal C++
-algorithm to an application-facing integration contract. It preserves legacy
-deposition callers, adds reversible C interfaces, and verifies a realistic
+algorithm to an application-facing integration contract. It retains the
+adsorption-specific API, adds reversible C interfaces, and verifies a realistic
 caller-controlled MPI event sequence.
 
 ## Stable C++ entry points
 
 `AtomChangeUpdater` and `DistributedAtomChangeUpdater` retain
 `apply_atom_changes()` as the primary operation. Both now also expose
-`apply_deposition()` and `apply_desorption()` convenience methods so one
+`apply_adsorption()` and `apply_desorption()` convenience methods so one
 persistent updater can serve every event kind and reuse its workspaces.
 
-The established `DepositionUpdater`, `DesorptionUpdater`,
-`DistributedDepositionUpdater`, and `DistributedDesorptionUpdater` classes and
-method signatures remain unchanged. Existing deposition clients therefore
+The established `AdsorptionUpdater`, `DesorptionUpdater`,
+`DistributedAdsorptionUpdater`, and `DistributedDesorptionUpdater` classes and
+method signatures remain unchanged. Existing adsorption clients therefore
 compile and retain their original result contracts and topology-filter path.
 
 ## Owning event buffer
 
 `AtomChangeEventBuffer` owns separate vectors for added and removed atoms. It
-supports deposition, desorption, movement, and batch append operations. A move
+supports adsorption, desorption, movement, and batch append operations. A move
 records the old atom in the removal direction and the new atom in the addition
 direction.
 
@@ -48,7 +48,7 @@ newly gas counts, repair kind, closing/opening traversal and relabel counts,
 method flags, final changed-voxel count, and final classification.
 
 The reversible result is separate from `ga_update_result`. No existing C type,
-constant, function signature, deposition behavior, or result accessor was
+constant, function signature, adsorption behavior, or result accessor was
 changed. The per-grid C++ updater is cached by precursor radius and repair mode
 so repeated C calls reuse repair workspaces.
 
@@ -69,10 +69,10 @@ For each caller-selected synchronization point:
 
 The SPPARKS-style MPI mock now runs a six-step reversible sequence:
 
-1. deposition-only;
+1. adsorption-only;
 2. desorption-only;
 3. movement represented as remove-old plus add-new;
-4. a mixed deposition/desorption batch;
+4. a mixed adsorption/desorption batch;
 5. an empty collective batch; and
 6. an exact no-net-change batch.
 
@@ -97,7 +97,7 @@ coordinate queries.
   of copied old/new records and all three unified updater entry points.
 - The SPPARKS-style mock contains three groups and runs the reversible event
   sequence at 1, 2, 4, and 8 MPI ranks.
-- Existing legacy deposition tests remain compiled and executed unchanged.
+- Existing adsorption-specific test coverage remains compiled and executed.
 
 ## Verification
 
@@ -109,13 +109,13 @@ pass, including the C99 client and the mock tKMC integration matrix at 1, 2,
 
 The production tKMC source is outside this repository, so choosing the exact
 sector synchronization call site and mapping its atom storage are application
-handoff tasks. The subsequent Phase R6 added the repeated deposition,
+handoff tasks. The subsequent Phase R6 added the repeated adsorption,
 desorption, and mixed efficiency/scaling benchmarks; its results are in
 [`PHASE_R6_REVERSIBLE_EFFICIENCY.md`](PHASE_R6_REVERSIBLE_EFFICIENCY.md).
 
 ## Conclusion
 
-Phase R5 passes its completion gate: existing deposition interfaces remain
+Phase R5 passes its completion gate: existing adsorption interfaces remain
 compatible, reversible serial C and C++ interfaces are available, and a mock
 tKMC path uses one collective update contract for every required event type at
 all requested MPI rank counts.

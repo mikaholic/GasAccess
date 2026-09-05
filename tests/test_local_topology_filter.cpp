@@ -1,4 +1,4 @@
-#include "gasaccess/deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
 #include "gasaccess/exterior_classifier.hpp"
 #include "gasaccess/local_topology_filter.hpp"
 
@@ -19,7 +19,7 @@ namespace {
 
 using gasaccess::Atom;
 using gasaccess::AtomVoxelizer;
-using gasaccess::DepositionUpdater;
+using gasaccess::AdsorptionUpdater;
 using gasaccess::ExteriorClassifier;
 using gasaccess::GasGrid;
 using gasaccess::GasState;
@@ -262,7 +262,7 @@ void test_exhaustive_planar_patterns_match_full_reference()
         ExteriorClassifier{}.classify(reference_grid);
 
         const Atom atom{{1.5, 1.5, 0.5}, 0.0};
-        const auto actual_result = DepositionUpdater(0.0).apply_deposition(
+        const auto actual_result = AdsorptionUpdater(0.0).apply_adsorption(
             actual_grid,
             {&atom, 1});
         AtomVoxelizer(0.0).voxelize(reference_grid, {&atom, 1});

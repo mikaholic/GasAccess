@@ -1,6 +1,6 @@
 #include "gasaccess/accessibility_query.hpp"
 #include "gasaccess/atom_voxelizer.hpp"
-#include "gasaccess/deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
 #include "gasaccess/exterior_classifier.hpp"
 #include "gasaccess/gas_grid.hpp"
 
@@ -157,7 +157,7 @@ void print_help(const char* executable_name)
         << "  --precursor-radius V  spherical steric radius (default: 0.25)\n"
         << "  --atom-count N        generated atom records for bulk (default: 10000)\n"
         << "  --query-count N       cached site queries (default: 100000)\n"
-        << "  --update-count N      one-atom deposition updates (default: 5)\n"
+        << "  --update-count N      one-atom adsorption updates (default: 5)\n"
         << "  --seed N              deterministic generator seed (default: 5489)\n"
         << "  --periodic-x           enable periodic x boundary\n"
         << "  --periodic-y           enable periodic y boundary\n"
@@ -554,11 +554,11 @@ int run(const Options& options)
     repair_update_latencies_us.reserve(update_atoms.size());
     full_update_latencies_us.reserve(update_atoms.size());
     ClassificationSummary final_summary = initial_summary;
-    const gasaccess::DepositionUpdater deposition_updater(options.precursor_radius);
+    const gasaccess::AdsorptionUpdater adsorption_updater(options.precursor_radius);
     const auto update_start = std::chrono::steady_clock::now();
     for (const auto& update_atom : update_atoms) {
         const auto single_update_start = std::chrono::steady_clock::now();
-        const auto result = deposition_updater.apply_deposition(
+        const auto result = adsorption_updater.apply_adsorption(
             gas_grid,
             AtomView{&update_atom, 1});
         const auto single_update_end = std::chrono::steady_clock::now();
@@ -657,7 +657,7 @@ int run(const Options& options)
               << elapsed_ms(classification_start, classification_end) << '\n';
     std::cout << "query_ms=" << query_ms << '\n';
     std::cout << "query_throughput_per_second=" << query_throughput << '\n';
-    std::cout << "deposition_update_ms=" << elapsed_ms(update_start, update_end) << '\n';
+    std::cout << "adsorption_update_ms=" << elapsed_ms(update_start, update_end) << '\n';
     print_latency_summary("update_latency", update_latencies_us);
     print_latency_summary("safe_update_latency", safe_update_latencies_us);
     print_latency_summary("repair_update_latency", repair_update_latencies_us);

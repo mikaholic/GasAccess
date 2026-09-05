@@ -161,14 +161,14 @@ static void test_c_atom_voxelization(void)
     ga_grid_destroy(grid);
 }
 
-static void test_c_deposition_update(void)
+static void test_c_adsorption_update(void)
 {
     ga_grid_spec grid_spec = make_grid_spec(3, 1, 1);
     ga_voxel_coord explicit_source = {1, 0, 0};
     ga_grid* grid = NULL;
     ga_atom atom;
     ga_update_result* update_result = NULL;
-    ga_deposition_update_summary update_summary;
+    ga_adsorption_update_summary update_summary;
     const ga_voxel_id* changed_voxel_ids = NULL;
     size_t changed_voxel_count = 0;
 
@@ -183,7 +183,7 @@ static void test_c_deposition_update(void)
     REQUIRE(ga_grid_create(&grid_spec, &grid) == GA_STATUS_SUCCESS);
     REQUIRE(ga_classify_exterior(grid, &(ga_classification_summary){0})
         == GA_STATUS_SUCCESS);
-    REQUIRE(ga_apply_deposition(
+    REQUIRE(ga_apply_adsorption(
         grid,
         &atom,
         1,
@@ -218,7 +218,7 @@ static void test_c_deposition_update(void)
     REQUIRE(ga_grid_create(&grid_spec, &grid) == GA_STATUS_SUCCESS);
     REQUIRE(ga_classify_exterior(grid, &(ga_classification_summary){0})
         == GA_STATUS_SUCCESS);
-    REQUIRE(ga_apply_deposition_with_mode(
+    REQUIRE(ga_apply_adsorption_with_mode(
         grid,
         &atom,
         1,
@@ -382,7 +382,7 @@ static void test_c_error_handling(void)
     REQUIRE(ga_grid_get_state_count(grid, GA_GAS_STATE_SOLID, NULL)
         == GA_STATUS_INVALID_ARGUMENT);
     REQUIRE(ga_grid_get_state(grid, 1, &gas_state) == GA_STATUS_OUT_OF_RANGE);
-    REQUIRE(ga_apply_deposition(
+    REQUIRE(ga_apply_adsorption(
         grid,
         &atom,
         1,
@@ -409,7 +409,7 @@ static void test_c_error_handling(void)
         0.0,
         &change_result) == GA_STATUS_INVALID_ARGUMENT);
     REQUIRE(change_result == NULL);
-    REQUIRE(ga_apply_deposition_with_mode(
+    REQUIRE(ga_apply_adsorption_with_mode(
         grid,
         &atom,
         1,
@@ -472,9 +472,9 @@ int main(void)
         printf("[PASS] C error handling\n");
     }
 
-    test_c_deposition_update();
+    test_c_adsorption_update();
     if (failure_count == 0) {
-        printf("[PASS] C deposition update\n");
+        printf("[PASS] C adsorption update\n");
     }
 
     test_c_reversible_updates();

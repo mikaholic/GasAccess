@@ -13,7 +13,7 @@ add_library(gasaccess
     src/atom_change_event_buffer.cpp
     src/atom_change_updater.cpp
     src/atom_voxelizer.cpp
-    src/deposition_updater.cpp
+    src/adsorption_updater.cpp
     src/desorption_updater.cpp
     src/exterior_classifier.cpp
     src/gasaccess_c.cpp
@@ -62,7 +62,7 @@ if(GASACCESS_ENABLE_MPI)
         src/distributed_atom_change_updater.cpp
         src/distributed_closing_region_repair.cpp
         src/distributed_desorption_updater.cpp
-        src/distributed_deposition_updater.cpp
+        src/distributed_adsorption_updater.cpp
         src/distributed_exterior_classifier.cpp
         src/distributed_opening_region_repair.cpp
         src/mpi_gas_grid.cpp
@@ -318,15 +318,15 @@ if(BUILD_TESTING)
 
     add_test(NAME gasaccess_c_api_tests COMMAND gasaccess_c_api_tests)
 
-    add_executable(gasaccess_deposition_updater_tests
-        tests/test_deposition_updater.cpp
+    add_executable(gasaccess_adsorption_updater_tests
+        tests/test_adsorption_updater.cpp
     )
-    target_link_libraries(gasaccess_deposition_updater_tests
+    target_link_libraries(gasaccess_adsorption_updater_tests
         PRIVATE GasAccess::gasaccess
     )
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(gasaccess_deposition_updater_tests PRIVATE
+        target_compile_options(gasaccess_adsorption_updater_tests PRIVATE
             -Wall
             -Wextra
             -Wpedantic
@@ -334,12 +334,12 @@ if(BUILD_TESTING)
             -Wsign-conversion
         )
     elseif(MSVC)
-        target_compile_options(gasaccess_deposition_updater_tests PRIVATE /W4)
+        target_compile_options(gasaccess_adsorption_updater_tests PRIVATE /W4)
     endif()
 
     add_test(
-        NAME gasaccess_deposition_updater_tests
-        COMMAND gasaccess_deposition_updater_tests
+        NAME gasaccess_adsorption_updater_tests
+        COMMAND gasaccess_adsorption_updater_tests
     )
 
     add_executable(gasaccess_desorption_updater_tests
@@ -573,7 +573,7 @@ if(BUILD_TESTING)
         endif()
 
         add_executable(gasaccess_distributed_updater_tests
-            tests/test_distributed_deposition_updater.cpp
+            tests/test_distributed_adsorption_updater.cpp
         )
         target_link_libraries(gasaccess_distributed_updater_tests
             PRIVATE GasAccess::gasaccess_mpi
@@ -780,9 +780,9 @@ if(BUILD_TESTING)
                     PASS_REGULAR_EXPRESSION "acceptance=pass"
             )
 
-            foreach(change_kind IN ITEMS deposition desorption mixed)
+            foreach(change_kind IN ITEMS adsorption desorption mixed)
                 foreach(repair_case IN ITEMS baseline best medium worst)
-                    if(change_kind STREQUAL "deposition")
+                    if(change_kind STREQUAL "adsorption")
                         set(repair_test_name
                             gasaccess_efficiency_repair_${repair_case}_${mpi_rank_count}_ranks
                         )

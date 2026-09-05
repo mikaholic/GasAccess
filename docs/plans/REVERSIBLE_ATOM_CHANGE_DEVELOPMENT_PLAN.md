@@ -5,9 +5,9 @@ Last updated: 2026-09-05
 
 ## 1. Objective
 
-Extend GasAccess from monotonic deposition-only updates to reversible atomic
+Extend GasAccess from monotonic adsorption-only updates to reversible atomic
 changes while preserving communication-free accessibility queries. A single
-collective update must accept batched deposited and desorbed atoms, commit the
+collective update must accept batched adsorbed and desorbed atoms, commit the
 final voxel occupancy once, repair only accessibility that may have become
 stale, and return with consistent owned and ghost states on every MPI rank.
 
@@ -38,13 +38,13 @@ resume allocation-free cached queries
 
 The extension has four acceptance goals:
 
-1. Pure deposition remains correct and does not suffer a material performance
+1. Pure adsorption remains correct and does not suffer a material performance
    regression.
 2. Pure desorption incrementally opens reservoir-connected voids without a
    full-grid scan.
-3. A mixed deposition/desorption batch is interpreted atomically from its final
+3. A mixed adsorption/desorption batch is interpreted atomically from its final
    occupancy, not as two observable intermediate structures.
-4. Deposition, desorption, and mixed repair have comparable repeated benchmark
+4. Adsorption, desorption, and mixed repair have comparable repeated benchmark
    coverage for one, two, four, and eight MPI ranks.
 
 ## 2. Starting constraints
@@ -54,7 +54,7 @@ Before Phase R1, the implementation was intentionally monotonic:
 - `GasGrid` and `DistributedGasGrid` store `GasState`, but do not retain how
   many atoms block each voxel.
 - `AtomVoxelizer` only changes gas voxels to `Solid`.
-- `DepositionUpdater::apply_deposition()` and its distributed counterpart only
+- `AdsorptionUpdater::apply_adsorption()` and its distributed counterpart only
   report newly solid voxels.
 - Affected-region repair only handles connectivity loss by changing stale
   `OutsideAccessible` voxels to `ClosedVoid`.
@@ -94,7 +94,7 @@ DistributedAtomChangeUpdateResult apply_atom_changes(
 Existing entry points remain as compatibility wrappers:
 
 ```cpp
-apply_deposition(grid, deposited_atoms);
+apply_adsorption(grid, adsorbed_atoms);
 apply_desorption(grid, removed_atoms);
 ```
 
@@ -182,7 +182,7 @@ all other changes leave occupancy unchanged
 
 Likely implementation areas include `gas_grid.*`, `mpi_gas_grid.*`,
 `atom_voxelizer.*`, a new atom-change description header, and replacement or
-extension of the current deposition-only updater types.
+extension of the current adsorption-only updater types.
 
 ### 4.2 Correctness tests
 
@@ -197,7 +197,7 @@ extension of the current deposition-only updater types.
   fail before mutation.
 - Serial and distributed occupancy match full voxelization of the final atom
   structure.
-- All existing deposition tests remain passing.
+- All existing adsorption tests remain passing.
 
 ### 4.3 Memory and performance expectations
 
@@ -210,10 +210,10 @@ MPI distribution. The expected runtime effects are:
 | Cached accessibility query | None beyond unrelated cache pressure |
 | Existing flood-fill traversal | No direct blocker-count access |
 | Initialization | Additional count update for each covered voxel |
-| Deposition | Additional count update even when a voxel was already solid |
+| Adsorption | Additional count update even when a voxel was already solid |
 | Desorption | Enables local work instead of mandatory full reconstruction |
 
-Capture Release-mode deposition baselines before R1, then repeat them after R1
+Capture Release-mode adsorption baselines before R1, then repeat them after R1
 on the same machine and build configuration. Use the existing timing method:
 untimed warmups, enough repetitions to exceed one measured second, and the
 average of the slowest-rank elapsed time from each repetition.
@@ -224,7 +224,7 @@ The following are investigation thresholds rather than correctness failures:
 |---|---:|
 | Cached query latency | 3% |
 | Existing repair traversal | 5% |
-| End-to-end deposition update | 10% |
+| End-to-end adsorption update | 10% |
 | Initialization | 15% |
 
 Do not introduce compressed or sparse counters before measurement. If the
@@ -235,7 +235,7 @@ straightforward array fails the memory or performance review, evaluate checked
 
 - Occupancy after every tested batch exactly matches full voxelization from the
   final atoms.
-- Existing deposition correctness remains unchanged.
+- Existing adsorption correctness remains unchanged.
 - Before/after runtime and peak-memory results are recorded for MPI ranks
   1, 2, 4, and 8.
 - Any regression beyond an investigation threshold is explained or corrected
@@ -277,7 +277,7 @@ markers analogous to the current closing repair.
 - Desorption exposes a configured source voxel directly.
 - Openings cross each periodic seam.
 - Empty, repeated, and invalid event batches.
-- Deterministic randomized deposition/desorption sequences compared after every
+- Deterministic randomized adsorption/desorption sequences compared after every
   event with full serial voxelization and `ExteriorClassifier`.
 
 ### 5.3 Completion gate
@@ -328,7 +328,7 @@ All rank counts match the serial and forced-full references. The worst fixture
 must visit and open voxels on every rank and finish with balanced frontier
 traffic.
 
-## 7. Phase R4 — Mixed deposition and desorption
+## 7. Phase R4 — Mixed adsorption and desorption
 
 Status: complete (2026-09-05). Implementation and verification are recorded in
 [`../benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md`](../benchmarks/PHASE_R4_MIXED_ATOM_CHANGES.md).
@@ -383,10 +383,10 @@ recorded in
 ### 8.1 Library interfaces
 
 - Stabilize the C++ `apply_atom_changes()` and `apply_desorption()` entry points.
-- Keep `apply_deposition()` source-compatible as a wrapper.
+- Keep `apply_adsorption()` source-compatible as a wrapper.
 - Add equivalent C API batch descriptors, result fields, and lifecycle
   functions.
-- Preserve existing C deposition symbols and behavior.
+- Preserve existing C adsorption symbols and behavior.
 - Update documentation from the monotonic-only contract to the reversible
   contract after R4 acceptance.
 - Extend the SPPARKS/tKMC-style atom buffer or add an event buffer that retains
@@ -403,12 +403,12 @@ At each caller-selected synchronization point:
 4. Call `apply_atom_changes()` collectively once.
 5. Resume communication-free accessibility queries after the call returns.
 
-Add a mock KMC integration sequence containing deposition-only,
+Add a mock KMC integration sequence containing adsorption-only,
 desorption-only, atom movement, mixed, empty, and no-net-change batches.
 
 ### 8.3 Completion gate
 
-Existing deposition clients compile unchanged, while the mock tKMC path uses
+Existing adsorption clients compile unchanged, while the mock tKMC path uses
 one collective batch API for all supported atomic changes.
 
 ## 9. Phase R6 — Efficiency and scaling benchmarks
@@ -420,18 +420,18 @@ and
 [`../benchmarks/PHASE_R6_RESULTS.csv`](../benchmarks/PHASE_R6_RESULTS.csv).
 
 Extend `gasaccess_mpi_efficiency_driver` and the existing repair fixture rather
-than introducing a separate timing program. Preserve the current deposition
+than introducing a separate timing program. Preserve the current adsorption
 CLI as the default and add:
 
 ```text
 --operation repair
---change-kind deposition|desorption|mixed
+--change-kind adsorption|desorption|mixed
 --case baseline|best|medium|worst
 ```
 
 ### 9.1 Fixture definitions
 
-#### Deposition
+#### Adsorption
 
 Retain the existing baseline, best, medium, and worst fixtures unchanged as
 regression measurements.
@@ -524,7 +524,7 @@ still assert:
 - All 48 configurations pass correctness checks.
 - Repeated Release-mode results are archived in a new benchmark report under
   `docs/benchmarks/`.
-- Deposition before/after R1 comparisons are included.
+- Adsorption before/after R1 comparisons are included.
 - Desorption and mixed incremental/full speedups are summarized without
   claiming an advantage when the affected size approaches the full grid.
 

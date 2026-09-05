@@ -10,7 +10,7 @@ part of Phase 10.
 ## Local pinch-off fixture
 
 The deterministic locality test uses a `9x1x9` grid with a high-z reservoir,
-two solid trench walls, and a three-voxel roof deposition.
+two solid trench walls, and a three-voxel roof adsorption.
 
 | Measurement | Result |
 |---|---:|
@@ -51,7 +51,7 @@ now reports those method counts and repair visit/closure counts explicitly.
 
 ## Remaining limitation
 
-`DepositionUpdater` still takes a full state snapshot and scans it to discover
+`AdsorptionUpdater` still takes a full state snapshot and scans it to discover
 newly solid voxels and build the result. Phase 8 removes global connectivity
-traversal for pinch-off repair; it does not yet make the entire deposition
+traversal for pinch-off repair; it does not yet make the entire adsorption
 pipeline local-complexity.

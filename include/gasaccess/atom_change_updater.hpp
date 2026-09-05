@@ -64,7 +64,7 @@ public:
 
     // Convenience wrappers for callers that use one persistent updater for
     // every event kind.
-    AtomChangeUpdateResult apply_deposition(
+    AtomChangeUpdateResult apply_adsorption(
         GasGrid& gas_grid,
         AtomView added_atoms) const;
     AtomChangeUpdateResult apply_desorption(

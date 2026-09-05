@@ -60,7 +60,7 @@ enum class Operation {
 struct Options {
     Operation operation = Operation::Repair;
     MockScenario scenario = MockScenario::MillionSlab;
-    EfficiencyChangeKind change_kind = EfficiencyChangeKind::Deposition;
+    EfficiencyChangeKind change_kind = EfficiencyChangeKind::Adsorption;
     EfficiencyRepairCase repair_case = EfficiencyRepairCase::Worst;
     GridDimensions dimensions{128, 128, 128};
     double minimum_measured_seconds = 1.0;
@@ -267,7 +267,7 @@ void print_help()
         << "Usage: gasaccess_mpi_efficiency_driver [options]\n"
         << "  --operation initialization|query|repair\n"
         << "  --scenario open-trench|sealed-trench|million-slab\n"
-        << "  --change-kind deposition|desorption|mixed\n"
+        << "  --change-kind adsorption|desorption|mixed\n"
         << "  --case baseline|best|medium|worst\n"
         << "  --nx N --ny N --nz N\n"
         << "  --min-measured-seconds S\n"
@@ -429,7 +429,7 @@ GasState initial_repair_state(
     }
     const bool single_closed_cavity =
         change_kind == EfficiencyChangeKind::Desorption
-        || (change_kind == EfficiencyChangeKind::Deposition
+        || (change_kind == EfficiencyChangeKind::Adsorption
             && repair_case == EfficiencyRepairCase::DetectionBaseline);
     if (single_closed_cavity
         && in_region(
@@ -541,7 +541,7 @@ AccessibilityRepairKind expected_incremental_repair_kind(
         return AccessibilityRepairKind::None;
     }
     switch (change_kind) {
-    case EfficiencyChangeKind::Deposition:
+    case EfficiencyChangeKind::Adsorption:
         return AccessibilityRepairKind::Closing;
     case EfficiencyChangeKind::Desorption:
         return AccessibilityRepairKind::Opening;

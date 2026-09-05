@@ -22,8 +22,8 @@ struct TopologyCheckResult {
 
 class LocalTopologyFilter {
 public:
-    // The grid is the post-deposition grid, while previous_state describes
-    // each newly solid voxel immediately before deposition. The initial
+    // The grid is the post-adsorption grid, while previous_state describes
+    // each newly solid voxel immediately before adsorption. The initial
     // implementation proves only single-voxel removals; larger changes return
     // RequiresConnectivityRepair conservatively.
     TopologyCheckResult evaluate(

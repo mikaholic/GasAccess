@@ -1,7 +1,7 @@
-#ifndef GASACCESS_DISTRIBUTED_DEPOSITION_UPDATER_HPP
-#define GASACCESS_DISTRIBUTED_DEPOSITION_UPDATER_HPP
+#ifndef GASACCESS_DISTRIBUTED_ADSORPTION_UPDATER_HPP
+#define GASACCESS_DISTRIBUTED_ADSORPTION_UPDATER_HPP
 
-#include "gasaccess/deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
 #include "gasaccess/distributed_exterior_classifier.hpp"
 #include "gasaccess/mpi_gas_grid.hpp"
 
@@ -12,7 +12,7 @@
 
 namespace gasaccess {
 
-struct DistributedDepositionUpdateResult {
+struct DistributedAdsorptionUpdateResult {
     std::uint64_t local_newly_solid_count = 0;
     std::uint64_t global_newly_solid_count = 0;
     std::vector<VoxelCoord> changed_owned_voxel_coords{};
@@ -34,9 +34,9 @@ struct DistributedDepositionUpdateResult {
     bool used_distributed_repair() const noexcept;
 };
 
-class DistributedDepositionUpdater {
+class DistributedAdsorptionUpdater {
 public:
-    explicit DistributedDepositionUpdater(
+    explicit DistributedAdsorptionUpdater(
         double precursor_radius,
         ConnectivityRepairMode repair_mode =
             ConnectivityRepairMode::AffectedRegion);
@@ -44,12 +44,12 @@ public:
     double precursor_radius() const noexcept;
     ConnectivityRepairMode repair_mode() const noexcept;
 
-    // Collective over the grid communicator. Deposited atoms must already be
+    // Collective over the grid communicator. Adsorbed atoms must already be
     // synchronized far enough to cover every owned voxel within
     // R_atom + R_precursor. The grid must already be fully classified.
-    DistributedDepositionUpdateResult apply_deposition(
+    DistributedAdsorptionUpdateResult apply_adsorption(
         DistributedGasGrid& gas_grid,
-        AtomView deposited_atoms);
+        AtomView adsorbed_atoms);
 
 private:
     void gather_removed_voxels(const DistributedGasGrid& gas_grid);
@@ -58,7 +58,7 @@ private:
     void begin_search_epoch();
     void repair_affected_regions(
         DistributedGasGrid& gas_grid,
-        DistributedDepositionUpdateResult& result);
+        DistributedAdsorptionUpdateResult& result);
 
     double precursor_radius_ = 0.0;
     ConnectivityRepairMode repair_mode_ = ConnectivityRepairMode::AffectedRegion;

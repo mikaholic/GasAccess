@@ -122,7 +122,7 @@ void configure_single_cavity(
 
     const bool baseline =
         repair_case == EfficiencyRepairCase::DetectionBaseline;
-    if (change_kind == EfficiencyChangeKind::Deposition) {
+    if (change_kind == EfficiencyChangeKind::Adsorption) {
         fixture.has_added_atom = true;
         fixture.initial_added_blocker_count = baseline ? 1U : 0U;
         fixture.expected_initial_closed_count = baseline ? cavity_volume : 0U;
@@ -238,8 +238,8 @@ void configure_mixed_fixture(
 
 EfficiencyChangeKind parse_efficiency_change_kind(const std::string& value)
 {
-    if (value == "deposition") {
-        return EfficiencyChangeKind::Deposition;
+    if (value == "adsorption") {
+        return EfficiencyChangeKind::Adsorption;
     }
     if (value == "desorption") {
         return EfficiencyChangeKind::Desorption;
@@ -248,15 +248,15 @@ EfficiencyChangeKind parse_efficiency_change_kind(const std::string& value)
         return EfficiencyChangeKind::Mixed;
     }
     throw std::invalid_argument(
-        "change kind must be deposition, desorption, or mixed");
+        "change kind must be adsorption, desorption, or mixed");
 }
 
 const char* efficiency_change_kind_name(
     EfficiencyChangeKind change_kind) noexcept
 {
     switch (change_kind) {
-    case EfficiencyChangeKind::Deposition:
-        return "deposition";
+    case EfficiencyChangeKind::Adsorption:
+        return "adsorption";
     case EfficiencyChangeKind::Desorption:
         return "desorption";
     case EfficiencyChangeKind::Mixed:

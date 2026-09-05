@@ -9,7 +9,7 @@
 namespace gasaccess::testing {
 
 enum class EfficiencyChangeKind {
-    Deposition,
+    Adsorption,
     Desorption,
     Mixed
 };

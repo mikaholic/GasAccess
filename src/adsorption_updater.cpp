@@ -1,4 +1,4 @@
-#include "gasaccess/deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -11,7 +11,7 @@ ClassificationSummary current_classification(const GasGrid& gas_grid)
 {
     if (gas_grid.gas_state_count(GasState::Unclassified) != 0) {
         throw std::invalid_argument(
-            "deposition update requires a fully classified gas grid");
+            "adsorption update requires a fully classified gas grid");
     }
     return {
         gas_grid.gas_state_count(GasState::Solid),
@@ -22,22 +22,22 @@ ClassificationSummary current_classification(const GasGrid& gas_grid)
 
 }  // namespace
 
-bool DepositionUpdateResult::geometry_changed() const noexcept
+bool AdsorptionUpdateResult::geometry_changed() const noexcept
 {
     return newly_solid_count != 0;
 }
 
-bool DepositionUpdateResult::used_full_reclassification() const noexcept
+bool AdsorptionUpdateResult::used_full_reclassification() const noexcept
 {
     return full_reclassification_performed;
 }
 
-bool DepositionUpdateResult::used_affected_region_repair() const noexcept
+bool AdsorptionUpdateResult::used_affected_region_repair() const noexcept
 {
     return affected_region_repair_performed;
 }
 
-DepositionUpdater::DepositionUpdater(
+AdsorptionUpdater::AdsorptionUpdater(
     double precursor_radius,
     ConnectivityRepairMode repair_mode)
     : atom_voxelizer_(precursor_radius),
@@ -49,21 +49,21 @@ DepositionUpdater::DepositionUpdater(
     }
 }
 
-double DepositionUpdater::precursor_radius() const noexcept
+double AdsorptionUpdater::precursor_radius() const noexcept
 {
     return atom_voxelizer_.precursor_radius();
 }
 
-ConnectivityRepairMode DepositionUpdater::repair_mode() const noexcept
+ConnectivityRepairMode AdsorptionUpdater::repair_mode() const noexcept
 {
     return repair_mode_;
 }
 
-DepositionUpdateResult DepositionUpdater::apply_deposition(
+AdsorptionUpdateResult AdsorptionUpdater::apply_adsorption(
     GasGrid& gas_grid,
-    AtomView deposited_atoms) const
+    AtomView adsorbed_atoms) const
 {
-    DepositionUpdateResult result{};
+    AdsorptionUpdateResult result{};
     result.classification = current_classification(gas_grid);
 
     std::vector<GasState> previous_states;
@@ -78,7 +78,7 @@ DepositionUpdateResult DepositionUpdater::apply_deposition(
 
     result.newly_solid_count = atom_voxelizer_.voxelize(
         gas_grid,
-        deposited_atoms,
+        adsorbed_atoms,
         removed_voxels_);
     if (!result.geometry_changed()) {
         return result;

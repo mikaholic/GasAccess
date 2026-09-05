@@ -1,4 +1,4 @@
-#include "gasaccess/distributed_deposition_updater.hpp"
+#include "gasaccess/distributed_adsorption_updater.hpp"
 
 #include <algorithm>
 #include <array>
@@ -172,7 +172,7 @@ DistributedClassificationSummary current_classification(
 {
     if (gas_grid.owned_gas_state_count(GasState::Unclassified) != 0) {
         throw std::invalid_argument(
-            "distributed deposition requires a fully classified gas grid");
+            "distributed adsorption requires a fully classified gas grid");
     }
 
     DistributedClassificationSummary summary{};
@@ -224,7 +224,7 @@ TopologyCheckResult evaluate_local_topology(
     if (removed_voxel.previous_state != GasState::OutsideAccessible
         && removed_voxel.previous_state != GasState::ClosedVoid) {
         throw std::invalid_argument(
-            "removed voxel was not classified as empty before deposition");
+            "removed voxel was not classified as empty before adsorption");
     }
     if (removed_voxel.previous_state == GasState::ClosedVoid) {
         return {TopologyDecision::Safe, 0, 0};
@@ -440,7 +440,7 @@ void exchange_frontiers(
     const MpiDecomposition& decomposition,
     std::array<std::vector<std::uint64_t>, 6>& send_buffers,
     std::array<std::vector<std::uint64_t>, 6>& receive_buffers,
-    DistributedDepositionUpdateResult& result)
+    DistributedAdsorptionUpdateResult& result)
 {
     std::array<std::uint64_t, 6> send_counts{};
     std::array<std::uint64_t, 6> receive_counts{};
@@ -580,22 +580,22 @@ void sort_changed_voxels(std::vector<VoxelCoord>& voxel_coords)
 
 }  // namespace
 
-bool DistributedDepositionUpdateResult::geometry_changed() const noexcept
+bool DistributedAdsorptionUpdateResult::geometry_changed() const noexcept
 {
     return global_newly_solid_count != 0;
 }
 
-bool DistributedDepositionUpdateResult::used_full_reclassification() const noexcept
+bool DistributedAdsorptionUpdateResult::used_full_reclassification() const noexcept
 {
     return full_reclassification_performed;
 }
 
-bool DistributedDepositionUpdateResult::used_distributed_repair() const noexcept
+bool DistributedAdsorptionUpdateResult::used_distributed_repair() const noexcept
 {
     return distributed_repair_performed;
 }
 
-DistributedDepositionUpdater::DistributedDepositionUpdater(
+DistributedAdsorptionUpdater::DistributedAdsorptionUpdater(
     double precursor_radius,
     ConnectivityRepairMode repair_mode)
     : precursor_radius_(precursor_radius),
@@ -611,22 +611,22 @@ DistributedDepositionUpdater::DistributedDepositionUpdater(
     }
 }
 
-double DistributedDepositionUpdater::precursor_radius() const noexcept
+double DistributedAdsorptionUpdater::precursor_radius() const noexcept
 {
     return precursor_radius_;
 }
 
-ConnectivityRepairMode DistributedDepositionUpdater::repair_mode() const noexcept
+ConnectivityRepairMode DistributedAdsorptionUpdater::repair_mode() const noexcept
 {
     return repair_mode_;
 }
 
-DistributedDepositionUpdateResult
-DistributedDepositionUpdater::apply_deposition(
+DistributedAdsorptionUpdateResult
+DistributedAdsorptionUpdater::apply_adsorption(
     DistributedGasGrid& gas_grid,
-    AtomView deposited_atoms)
+    AtomView adsorbed_atoms)
 {
-    DistributedDepositionUpdateResult result{};
+    DistributedAdsorptionUpdateResult result{};
     result.classification = current_classification(gas_grid);
     const auto& owned_range = gas_grid.owned_range();
 
@@ -645,7 +645,7 @@ DistributedDepositionUpdater::apply_deposition(
     }
 
     result.local_newly_solid_count = gas_grid.voxelize_owned_atoms(
-        deposited_atoms,
+        adsorbed_atoms,
         precursor_radius_,
         removed_voxels_);
     const auto communicator = gas_grid.decomposition().spec().communicator;
@@ -742,7 +742,7 @@ DistributedDepositionUpdater::apply_deposition(
     return result;
 }
 
-void DistributedDepositionUpdater::gather_removed_voxels(
+void DistributedAdsorptionUpdater::gather_removed_voxels(
     const DistributedGasGrid& gas_grid)
 {
     const auto global_count_limit = static_cast<std::uint64_t>(INT_MAX)
@@ -836,7 +836,7 @@ void DistributedDepositionUpdater::gather_removed_voxels(
         });
 }
 
-void DistributedDepositionUpdater::prepare_repair_workspace(
+void DistributedAdsorptionUpdater::prepare_repair_workspace(
     const DistributedGasGrid& gas_grid)
 {
     const auto local_voxel_count = static_cast<std::size_t>(
@@ -851,7 +851,7 @@ void DistributedDepositionUpdater::prepare_repair_workspace(
     repair_epoch_ = 0;
 }
 
-void DistributedDepositionUpdater::begin_repair_epoch()
+void DistributedAdsorptionUpdater::begin_repair_epoch()
 {
     ++repair_epoch_;
     if (repair_epoch_ != 0) {
@@ -864,7 +864,7 @@ void DistributedDepositionUpdater::begin_repair_epoch()
     repair_epoch_ = 1;
 }
 
-void DistributedDepositionUpdater::begin_search_epoch()
+void DistributedAdsorptionUpdater::begin_search_epoch()
 {
     ++search_epoch_;
     if (search_epoch_ != 0) {
@@ -874,9 +874,9 @@ void DistributedDepositionUpdater::begin_search_epoch()
     search_epoch_ = 1;
 }
 
-void DistributedDepositionUpdater::repair_affected_regions(
+void DistributedAdsorptionUpdater::repair_affected_regions(
     DistributedGasGrid& gas_grid,
-    DistributedDepositionUpdateResult& result)
+    DistributedAdsorptionUpdateResult& result)
 {
     prepare_repair_workspace(gas_grid);
     begin_repair_epoch();

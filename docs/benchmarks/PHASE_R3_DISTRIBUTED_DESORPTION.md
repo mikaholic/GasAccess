@@ -84,7 +84,7 @@ available local transport.
 ## Scope boundary
 
 Phase R3 implements pure desorption correctness and traversal metrics. It does
-not yet combine deposition and desorption in one atomic public update, expose
+not yet combine adsorption and desorption in one atomic public update, expose
 desorption through the C API, or add repeated desorption timing fixtures.
 Those remain Phases R4, R5, and R6 respectively.
 

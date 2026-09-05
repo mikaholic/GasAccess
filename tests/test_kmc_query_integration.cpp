@@ -1,6 +1,6 @@
 #include "gasaccess/accessibility_query.hpp"
 #include "gasaccess/atom_voxelizer.hpp"
-#include "gasaccess/deposition_updater.hpp"
+#include "gasaccess/adsorption_updater.hpp"
 #include "gasaccess/exterior_classifier.hpp"
 
 #include <cstddef>
@@ -17,7 +17,7 @@ namespace {
 
 using gasaccess::Atom;
 using gasaccess::AtomVoxelizer;
-using gasaccess::DepositionUpdater;
+using gasaccess::AdsorptionUpdater;
 using gasaccess::ExteriorClassifier;
 using gasaccess::GasAccessibilityQuery;
 using gasaccess::GasGrid;
@@ -107,7 +107,7 @@ void test_single_call_contract_observes_pinch_off()
     REQUIRE(sites[1].gas_reaction_enabled);
 
     const Atom roof_atom{{2.5, 0.5, 3.5}, 0.0};
-    const auto update_result = DepositionUpdater(0.0).apply_deposition(
+    const auto update_result = AdsorptionUpdater(0.0).apply_adsorption(
         gas_grid,
         {&roof_atom, 1});
     REQUIRE(update_result.geometry_changed());

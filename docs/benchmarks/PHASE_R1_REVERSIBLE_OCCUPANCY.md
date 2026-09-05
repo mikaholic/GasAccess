@@ -9,8 +9,8 @@ owned voxels; face ghosts continue to store only `GasState`.
 
 ## Implemented behavior
 
-- Existing serial and distributed deposition entry points remain available.
-- Initial and deposition voxelization increments every covered voxel, including
+- Existing serial and distributed adsorption entry points remain available.
+- Initial and adsorption voxelization increments every covered voxel, including
   overlap with voxels that were already solid.
 - `AtomChangeBatch` accepts added and removed atom views in one transaction.
 - Additions and removals are aggregated by voxel before mutation.
@@ -77,7 +77,7 @@ The maximum measured increase, 8.48%, is below the 15% investigation threshold.
 Cached query latency changes by at most 1.01%, below its 3% threshold; the query
 path does not read blocker counts.
 
-## Existing deposition-repair results
+## Existing adsorption-repair results
 
 | MPI ranks | Detection before/after (us) | Best before/after (ms) | Medium before/after (ms) | Worst before/after (ms) |
 |---:|---:|---:|---:|---:|
@@ -89,7 +89,7 @@ path does not read blocker counts.
 The largest stable increase is 7.59% for the one-rank detection-only path,
 which is far below one microsecond. Best repair changes by -1.15% to +4.54%.
 Medium and worst repair change by -1.93% to +3.50%. These remain below the 10%
-end-to-end deposition threshold, and substantial flood-fill cases remain below
+end-to-end adsorption threshold, and substantial flood-fill cases remain below
 the 5% repair-traversal threshold.
 
 `*` The four-rank best fixture performs work on only one rank and showed a
@@ -116,7 +116,7 @@ Peak RSS contains allocator and process-launch noise, but the measured
 ## Phase R1 conclusion
 
 Phase R1 passes its completion gate. Reversible, overlap-safe occupancy is in
-place; existing deposition behavior remains correct; query latency is
+place; existing adsorption behavior remains correct; query latency is
 effectively unchanged; initialization remains within budget; and meaningful
 repair workloads remain within the planned performance thresholds. Phase R2
 can build serial opening repair on the newly-gas transition output.

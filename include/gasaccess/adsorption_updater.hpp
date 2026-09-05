@@ -1,5 +1,5 @@
-#ifndef GASACCESS_DEPOSITION_UPDATER_HPP
-#define GASACCESS_DEPOSITION_UPDATER_HPP
+#ifndef GASACCESS_ADSORPTION_UPDATER_HPP
+#define GASACCESS_ADSORPTION_UPDATER_HPP
 
 #include "gasaccess/affected_region_repair.hpp"
 #include "gasaccess/atom_voxelizer.hpp"
@@ -16,7 +16,7 @@ enum class ConnectivityRepairMode : std::uint8_t {
     FullReclassification = 1
 };
 
-struct DepositionUpdateResult {
+struct AdsorptionUpdateResult {
     VoxelId newly_solid_count = 0;
     std::vector<VoxelId> changed_voxel_ids{};
     ClassificationSummary classification{};
@@ -30,21 +30,21 @@ struct DepositionUpdateResult {
     bool used_affected_region_repair() const noexcept;
 };
 
-class DepositionUpdater {
+class AdsorptionUpdater {
 public:
-    explicit DepositionUpdater(
+    explicit AdsorptionUpdater(
         double precursor_radius,
         ConnectivityRepairMode repair_mode = ConnectivityRepairMode::AffectedRegion);
 
     double precursor_radius() const noexcept;
     ConnectivityRepairMode repair_mode() const noexcept;
 
-    // The grid must already be fully classified. Deposited atoms are supplied
-    // by the caller; this method does not model deposition physics. Changed
+    // The grid must already be fully classified. Adsorbed atoms are supplied
+    // by the caller; this method does not model adsorption physics. Changed
     // voxel identifiers are unique and sorted in ascending order.
-    DepositionUpdateResult apply_deposition(
+    AdsorptionUpdateResult apply_adsorption(
         GasGrid& gas_grid,
-        AtomView deposited_atoms) const;
+        AtomView adsorbed_atoms) const;
 
 private:
     AtomVoxelizer atom_voxelizer_;

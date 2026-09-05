@@ -4,7 +4,7 @@ Date: 2026-09-05
 
 Phase R4 adds one serial and one collective MPI operation for applying added
 and removed atoms as a single atomic occupancy transaction. It supports pure
-deposition, pure desorption, atom movement, and genuinely mixed batches while
+adsorption, pure desorption, atom movement, and genuinely mixed batches while
 preserving the final-state semantics required by tKMC.
 
 ## Public C++ path
@@ -20,7 +20,7 @@ one record in each view. Both footprints are aggregated before blocker counts
 are committed, so connectivity repair never observes an addition-only or
 removal-only intermediate geometry.
 
-The existing deposition and desorption updaters remain source-compatible.
+The existing adsorption and desorption updaters remain source-compatible.
 `AtomChangeRepairMode::FullReclassification` provides a serial or distributed
 correctness-reference path for differential testing and debugging.
 
@@ -80,7 +80,7 @@ The serial executable contains seven test groups covering:
 - partially overlapping added and removed footprints;
 - a channel swap that closes and reopens transient voxels but reports only
   final changes;
-- pure deposition and pure desorption through the unified API; and
+- pure adsorption and pure desorption through the unified API; and
 - 120 deterministic mixed batches checked after every event against both
   forced full reclassification and reconstruction from the final atom set.
 
@@ -104,14 +104,14 @@ repair counts, participating ranks, and globally balanced frontier traffic.
 
 The Release MPI-enabled build is warning-clean. All 70 registered CTest cases
 pass, including the mixed atom-change executable at 1, 2, 4, and 8 ranks. The
-complete suite also confirms that existing initialization, query, deposition,
+complete suite also confirms that existing initialization, query, adsorption,
 desorption, C API, static-integration, and efficiency tests remain passing.
 
 ## Scope boundary
 
 Phase R4 establishes the C++ algorithm and correctness contract. Stable C API
 descriptors and the tKMC-oriented event buffer were deferred to Phase R5 and
-are now complete. Repeated deposition, desorption, and mixed
+are now complete. Repeated adsorption, desorption, and mixed
 best/medium/worst efficiency measurements remain Phase R6.
 
 ## Conclusion

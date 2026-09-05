@@ -4,11 +4,11 @@ The reversible Phase R6 extension adds desorption and mixed atom changes,
 paired incremental/full timings, and a 48-configuration repair matrix. See
 [`PHASE_R6_REVERSIBLE_EFFICIENCY.md`](PHASE_R6_REVERSIBLE_EFFICIENCY.md) for
 the current repair benchmark contract and results. This page retains the
-original deposition-only lifecycle record.
+original adsorption-only lifecycle record.
 
 This phase adds one repeated MPI driver for the three operations seen by a KMC
 application: initial grid construction/classification, cached coordinate
-queries, and collective deposition repair. The driver emits one `key=value`
+queries, and collective adsorption repair. The driver emits one `key=value`
 field per line so benchmark automation can archive and compare runs.
 
 ## Build
@@ -36,7 +36,7 @@ defaults to `1;2;4;8`.
 - Query timing uses a large allocation-free batch and reports the slowest-rank
   average query time and global throughput.
 - Repair fixture construction, initial classification, correctness checks, and
-  state restoration occur outside the timed `apply_deposition()` interval.
+  state restoration occur outside the timed `apply_adsorption()` interval.
 - Minimum, maximum, and standard deviation accompany the primary average.
 
 The default minimum measured duration is one second. Short registered smoke
@@ -81,16 +81,16 @@ mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
 whole coordinate batches until both that count and the requested measured
 duration are reached.
 
-## Deposition detection and repair
+## Adsorption detection and repair
 
-All ranks call the same collective `apply_deposition()` operation. A rank may
+All ranks call the same collective `apply_adsorption()` operation. A rank may
 have no changed owned voxel, but remains in change detection, repair
 termination, and halo synchronization. Four deterministic cases isolate the
 main paths:
 
 | Case | Geometry | Expected work |
 |---|---|---|
-| `baseline` | Deposit into an already-solid barrier voxel | Detection only; no geometry change or repair |
+| `baseline` | Adsorb into an already-solid barrier voxel | Detection only; no geometry change or repair |
 | `best` | Close an `8x8x8` pocket adjacent to the reservoir | 512 newly closed voxels on one rank |
 | `medium` | Close the lower quarter of the global grid | Approximately 25% of voxels close across ranks |
 | `worst` | Close the lower three quarters of the global grid | Approximately 75% of voxels close and every rank participates |
@@ -115,7 +115,7 @@ requires at least 12 x voxels per rank so its pocket and shell remain local.
 
 Repair output includes:
 
-- end-to-end `apply_deposition()` statistics;
+- end-to-end `apply_adsorption()` statistics;
 - expected, visited, closed, and changed voxel counts;
 - count of ranks that visited and closed repair voxels;
 - minimum and maximum per-rank visits and closures;
