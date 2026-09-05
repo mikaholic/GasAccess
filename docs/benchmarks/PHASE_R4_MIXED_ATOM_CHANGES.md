@@ -5,7 +5,7 @@ Date: 2026-09-05
 Phase R4 adds one serial and one collective MPI operation for applying added
 and removed atoms as a single atomic occupancy transaction. It supports pure
 adsorption, pure desorption, atom movement, and genuinely mixed batches while
-preserving the final-state semantics required by tKMC.
+preserving the final-state semantics required by KMC.
 
 ## Public C++ path
 
@@ -110,7 +110,7 @@ desorption, C API, static-integration, and efficiency tests remain passing.
 ## Scope boundary
 
 Phase R4 establishes the C++ algorithm and correctness contract. Stable C API
-descriptors and the tKMC-oriented event buffer were deferred to Phase R5 and
+descriptors and the KMC-oriented event buffer were deferred to Phase R5 and
 are now complete. Repeated adsorption, desorption, and mixed
 best/medium/worst efficiency measurements remain Phase R6.
 

@@ -145,7 +145,7 @@ must not be interpreted as the memory requirement of one production grid.
   reclassification when estimated affected work is a large fraction of the
   grid.
 
-The relevant tKMC regime is dominated by local events, where the benchmark
+The relevant KMC regime is dominated by local events, where the benchmark
 shows very low update cost and avoids a global scan. The all-rank fixtures are
 safety and scalability tests, not an assertion that incremental repair should
 win when most of the grid changes.

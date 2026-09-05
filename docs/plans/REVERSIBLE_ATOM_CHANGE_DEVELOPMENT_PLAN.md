@@ -108,7 +108,7 @@ apply_desorption(grid, removed_atoms);
 - Treat an atom move as removal at its old position plus addition at its new
   position in the same batch.
 - Require every added or removed atom record exactly once. The initial design
-  does not add an internal atom registry; tKMC remains the atomic source of
+  does not add an internal atom registry; KMC remains the atomic source of
   truth.
 - Removed atoms must be passed with their old positions and radii. Under MPI,
   their synchronized event records must remain available until the collective
@@ -374,7 +374,7 @@ The incremental mixed path becomes the default only when all tested states,
 counts, changed coordinates, ghosts, and queries exactly match the full
 reference for MPI ranks 1, 2, 4, and 8.
 
-## 8. Phase R5 — Public interfaces and tKMC integration
+## 8. Phase R5 — Public interfaces and KMC integration
 
 Status: complete (2026-09-05). Interfaces and integration verification are
 recorded in
@@ -389,10 +389,10 @@ recorded in
 - Preserve existing C adsorption symbols and behavior.
 - Update documentation from the monotonic-only contract to the reversible
   contract after R4 acceptance.
-- Extend the SPPARKS/tKMC-style atom buffer or add an event buffer that retains
+- Extend the SPPARKS/KMC-style atom buffer or add an event buffer that retains
   old removed-atom records through the collective call.
 
-### 8.2 tKMC call sequence
+### 8.2 KMC call sequence
 
 At each caller-selected synchronization point:
 
@@ -408,7 +408,7 @@ desorption-only, atom movement, mixed, empty, and no-net-change batches.
 
 ### 8.3 Completion gate
 
-Existing adsorption clients compile unchanged, while the mock tKMC path uses
+Existing adsorption clients compile unchanged, while the mock KMC path uses
 one collective batch API for all supported atomic changes.
 
 ## 9. Phase R6 — Efficiency and scaling benchmarks
@@ -543,7 +543,7 @@ R3 distributed opening repair
 R4 mixed fallback, then incremental mixed repair
  |
  v
-R5 stable public and tKMC integration interfaces
+R5 stable public and KMC integration interfaces
  |
  v
 R6 complete benchmark matrix and report

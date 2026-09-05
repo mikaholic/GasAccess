@@ -1,4 +1,4 @@
-# Phase R5 public interfaces and tKMC integration
+# Phase R5 public interfaces and KMC integration
 
 Date: 2026-09-05
 
@@ -27,10 +27,10 @@ records the old atom in the removal direction and the new atom in the addition
 direction.
 
 The buffer's `atom_changes()` view stays valid until the buffer is modified or
-destroyed. This prevents removed records from disappearing when tKMC erases or
+destroyed. This prevents removed records from disappearing when KMC erases or
 moves atoms in its live structure before the accessibility collective begins.
 The buffer intentionally performs no MPI communication and does not dictate
-when tKMC synchronizes.
+when KMC synchronizes.
 
 ## C99 interface
 
@@ -52,18 +52,18 @@ constant, function signature, adsorption behavior, or result accessor was
 changed. The per-grid C++ updater is cached by precursor radius and repair mode
 so repeated C calls reuse repair workspaces.
 
-## tKMC synchronization contract
+## KMC synchronization contract
 
 For each caller-selected synchronization point:
 
-1. tKMC completes its conflict-free sector events.
+1. KMC completes its conflict-free sector events.
 2. It retains added atoms at new positions and removed atoms at old positions.
 3. It synchronizes both event directions far enough to cover every owned voxel
    within `R_atom + R_precursor`.
 4. Every rank calls `apply_atom_changes()` once, including ranks with an empty
    local buffer.
 5. The event buffer can be cleared after the collective returns.
-6. tKMC resumes communication-free cached accessibility queries.
+6. KMC resumes communication-free cached accessibility queries.
 
 ## Mock integration acceptance
 
@@ -102,12 +102,12 @@ coordinate queries.
 ## Verification
 
 The Release MPI-enabled build is warning-clean. All 70 registered CTest cases
-pass, including the C99 client and the mock tKMC integration matrix at 1, 2,
+pass, including the C99 client and the mock KMC integration matrix at 1, 2,
 4, and 8 ranks.
 
 ## Scope boundary
 
-The production tKMC source is outside this repository, so choosing the exact
+The production KMC source is outside this repository, so choosing the exact
 sector synchronization call site and mapping its atom storage are application
 handoff tasks. The subsequent Phase R6 added the repeated adsorption,
 desorption, and mixed efficiency/scaling benchmarks; its results are in
@@ -117,5 +117,5 @@ desorption, and mixed efficiency/scaling benchmarks; its results are in
 
 Phase R5 passes its completion gate: existing adsorption interfaces remain
 compatible, reversible serial C and C++ interfaces are available, and a mock
-tKMC path uses one collective update contract for every required event type at
+KMC path uses one collective update contract for every required event type at
 all requested MPI rank counts.

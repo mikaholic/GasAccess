@@ -97,7 +97,7 @@ events.clear();
 ```
 
 The buffer deliberately does not choose synchronization timing or perform atom
-communication. tKMC retains that flexibility and may accumulate several
+communication. KMC retains that flexibility and may accumulate several
 sector-safe events before synchronizing. Every rank must enter the collective
 in the same order, including ranks with empty buffers. Accessibility queries
 remain local and communication-free after the updater returns.
@@ -124,7 +124,7 @@ They cover:
 - the same trench with a cap, whose internal wall probes are inaccessible;
 - a 128 x 128 x 64 solid slab containing 1,048,576 atoms beneath an equally
   sized gas region.
-- a reversible six-step tKMC sequence containing adsorption, desorption, an
+- a reversible six-step KMC sequence containing adsorption, desorption, an
   atom move, a mixed batch, an empty batch, and a no-net-change batch.
 
 The reversible sequence synchronizes added and old removed-event buffers
@@ -147,7 +147,7 @@ error if the expected accessibility result is not reproduced.
 
 ## Real-application handoff
 
-The actual tKMC application is not present in this repository, so GasAccess
+The actual KMC application is not present in this repository, so GasAccess
 cannot name its atom-radius accessor, select its synchronization point, or
 invoke its existing atom/event exchange. Those application-specific calls are
 the handoff. Grid construction, classification, the owning reversible event

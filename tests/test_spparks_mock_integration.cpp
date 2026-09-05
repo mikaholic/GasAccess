@@ -257,7 +257,7 @@ void compare_changed_coordinates(
             == expected_owned_changes);
 }
 
-void test_reversible_tkmc_event_sequence(int process_count)
+void test_reversible_kmc_event_sequence(int process_count)
 {
     constexpr double atom_radius = 1.1;
     constexpr double precursor_radius = 0.0;
@@ -636,8 +636,8 @@ int main(int argument_count, char** arguments)
         {"ghost cutoff guard", [&]() {
              test_ghost_cutoff_guard(rank, process_count);
          }},
-        {"reversible tKMC event sequence", [&]() {
-             test_reversible_tkmc_event_sequence(process_count);
+        {"reversible KMC event sequence", [&]() {
+             test_reversible_kmc_event_sequence(process_count);
          }}};
     for (const auto& test : tests) {
         try {

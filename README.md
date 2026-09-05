@@ -9,7 +9,7 @@ geometry/connectivity/query baseline, distributed incremental repair for
 monotonic adsorption, and Phase R3 serial and distributed incremental
 desorption repair. Phase R4 adds atomic mixed adsorption/desorption repair in
 both the serial and distributed C++ layers. Phase R5 exposes the reversible
-path through the C API and a tKMC-oriented owning event buffer.
+path through the C API and a KMC-oriented owning event buffer.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -275,7 +275,7 @@ ga_atom_change_result_destroy(result);
 
 `ga_apply_desorption()` is the pure-removal convenience entry point. Both
 operations also have `_with_mode` variants for forced full reclassification.
-The Phase R5 interface and mock tKMC acceptance results are documented in
+The Phase R5 interface and mock KMC acceptance results are documented in
 [`docs/benchmarks/PHASE_R5_PUBLIC_INTEGRATION.md`](docs/benchmarks/PHASE_R5_PUBLIC_INTEGRATION.md).
 
 ## SPPARKS-style static acceptance
