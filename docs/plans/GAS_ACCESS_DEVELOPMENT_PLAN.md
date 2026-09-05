@@ -1,8 +1,9 @@
 # GasAccess Development Plan
 
-Status: standalone development complete — Phase 14 mock acceptance complete;
-real KMC hookup awaits the production application source
-Last updated: 2026-08-19
+Status: original standalone scope complete through Phase 14; reversible atom
+changes are planned in
+[`REVERSIBLE_ATOM_CHANGE_DEVELOPMENT_PLAN.md`](REVERSIBLE_ATOM_CHANGE_DEVELOPMENT_PLAN.md)
+Last updated: 2026-09-05
 
 This is the working plan for developing GasAccess as an independent C++/C
 library and later integrating it with an MPI-parallel kinetic Monte Carlo
