@@ -1,6 +1,6 @@
 # Reversible Atom-Change Development Plan
 
-Status: Phases R1-R2 complete; Phases R3-R6 planned
+Status: Phases R1-R3 complete; Phases R4-R6 planned
 Last updated: 2026-09-05
 
 ## 1. Objective
@@ -287,15 +287,18 @@ query result matches full reconstruction and classification.
 
 ## 6. Phase R3 — Distributed MPI desorption repair
 
+Status: complete (2026-09-05). Implementation and verification are recorded in
+[`../benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md`](../benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md).
+
 ### 6.1 Algorithm
 
 1. Apply synchronized atom-count deltas only to owned voxels.
-2. Reduce global newly solid and newly gas counts.
+2. Reduce global blocker-count changes and newly gas counts.
 3. Prepare opening seeds from owned source/accessible boundaries.
 4. Drain each local frontier through owned `ClosedVoid` voxels.
 5. Exchange compact tangential offsets only when the frontier crosses an MPI
    face.
-6. Use global activity/source reductions for termination.
+6. Use a global activity reduction for termination.
 7. Relabel reached owned voxels `OutsideAccessible`.
 8. Exchange final face-ghost states once before returning.
 

@@ -6,8 +6,8 @@ Cartesian voxel grid. Development follows the recorded phased plan in
 
 The current implementation includes the original serial and distributed
 geometry/connectivity/query baseline, distributed incremental repair for
-monotonic deposition, and Phase R2 serial incremental desorption repair. MPI
-desorption and mixed-event accessibility repair remain planned work.
+monotonic deposition, and Phase R3 serial and distributed incremental
+desorption repair. Mixed-event accessibility repair remains planned work.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -35,8 +35,8 @@ desorption and mixed-event accessibility repair remain planned work.
 - reusable epoch/frontier traversal storage with periodic-boundary support;
 - selectable incremental or forced full-reference update modes;
 - sorted changed-voxel reporting and post-update classification counts;
-- serial incremental opening repair after atom desorption, with overlap-safe
-  occupancy and a forced full-reclassification reference mode;
+- serial and distributed incremental opening repair after atom desorption,
+  with overlap-safe occupancy and forced full-reclassification reference modes;
 - an exception-safe C99 API with opaque grid and update-result handles;
 - deterministic open-trench, sealed-trench, and bulk workload generation;
 - machine-readable correctness checksums, timings, and memory reporting;
@@ -96,7 +96,8 @@ With MPI enabled this produces `build/libgasaccess.a`,
 `build/libgasaccess_mpi.a`, the standalone reference driver, the ten serial
 test executables, `build/gasaccess_mpi_grid_tests`,
 `build/gasaccess_distributed_classifier_tests`, and
-`build/gasaccess_distributed_updater_tests`. Phase 14 also produces
+`build/gasaccess_distributed_updater_tests`, and
+`build/gasaccess_distributed_desorption_tests`. Phase 14 also produces
 `build/gasaccess_spparks_mock_driver` and
 `build/gasaccess_spparks_mock_integration_tests`. The lifecycle efficiency
 matrix is provided by `build/gasaccess_mpi_efficiency_driver`.
@@ -155,7 +156,7 @@ The concrete adapter, mock application, and remaining production handoff are
 documented in
 [`docs/integration/SPPARKS_STATIC_INTEGRATION.md`](docs/integration/SPPARKS_STATIC_INTEGRATION.md).
 
-## Serial incremental desorption
+## Incremental desorption
 
 The serial C++ layer can remove one or more atoms using their old positions
 and radii:
@@ -174,8 +175,21 @@ reachable `ClosedVoid` components. Empty batches and overlap-only removals skip
 the flood fill. Details and correctness results are recorded in
 [`docs/benchmarks/PHASE_R2_SERIAL_DESORPTION.md`](docs/benchmarks/PHASE_R2_SERIAL_DESORPTION.md).
 
-This interface is currently serial. The MPI updater remains monotonic
-deposition-only until Phase R3.
+The MPI layer provides the same operation collectively:
+
+```cpp
+gasaccess::DistributedDesorptionUpdater updater(precursor_radius);
+const auto result = updater.apply_desorption(
+    distributed_grid,
+    {removed_atoms, removed_atom_count});
+```
+
+Every rank calls it in the same order, including ranks with an empty local
+atom view. Each rank updates only owned blocker counts; opening propagation
+crosses subdomains through compact face-frontier offsets, terminates with a
+global activity check, and synchronizes final face ghosts once. Phase R3's MPI
+contract and 1/2/4/8-rank correctness results are recorded in
+[`docs/benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md`](docs/benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md).
 
 ## SPPARKS-style static acceptance
 

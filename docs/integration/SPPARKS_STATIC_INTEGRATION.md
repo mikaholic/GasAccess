@@ -74,9 +74,11 @@ That call uses cached owned/face-ghost gas states and performs no MPI
 communication. The KMC remains responsible for its ordinary rate scan.
 
 For a later geometry rebuild, repeat atom synchronization, clear/reconstruct
-owned occupancy from the current atoms, and classify again. For monotonic
-deposition without atom motion, the Phase 13 distributed updater remains the
-faster option.
+owned occupancy from the current atoms, and classify again. Monotonic
+deposition can use `DistributedDepositionUpdater`; atom removal can use
+`DistributedDesorptionUpdater` with the removed atoms' old positions and
+radii. Atom moves and mixed addition/removal batches continue to use a full
+rebuild until the unified Phase R4 update is available.
 
 ## Mock application
 

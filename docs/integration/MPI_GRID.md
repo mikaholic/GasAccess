@@ -4,8 +4,9 @@ Phases 11 through 13 provide an optional C++ MPI layer in
 `GasAccess::gasaccess_mpi`. It
 reuses the host application's Cartesian decomposition; it does not create or
 rebalance a second domain decomposition. Both distributed initial flood-fill
-and monotonic-deposition connectivity repair are implemented. Phase 14 adds
-the SPPARKS field adapter and static acceptance application documented in
+and incremental deposition/desorption connectivity repair are implemented.
+Phase 14 adds the SPPARKS field adapter and static acceptance application
+documented in
 [`SPPARKS_STATIC_INTEGRATION.md`](SPPARKS_STATIC_INTEGRATION.md).
 
 ## Build
@@ -117,8 +118,10 @@ atom_ghost_distance >= maximum(R_atom + R_precursor)
 maximum and actual ghost distance before mutating state. This is deliberately
 defensive even when the KMC bin setup already guarantees sufficient coverage.
 
-The atom input may contain already synchronized owned and ghost atoms;
-duplicate coverage is harmless because voxel solidification is idempotent.
+The atom input may contain already synchronized owned and ghost atoms, but each
+physical atom must appear exactly once in a rank's view. Blocker counts retain
+overlap multiplicity so a duplicated atom record would require a matching
+duplicate removal before its voxels become gas.
 
 ## Distributed initial classification
 
@@ -202,7 +205,53 @@ For debugging, construct the updater with
 `ConnectivityRepairMode::FullReclassification`. Every geometry-changing call
 then uses the Phase 12 classifier and reports all changed owned coordinates.
 
-The incremental path is valid only when occupancy changes monotonically from
-gas to solid. If MD relaxation moves atoms or makes solid voxels free again,
-rebuild owned occupancy from the synchronized current structure and run full
-distributed classification.
+This deposition entry point remains restricted to gas-to-solid changes. Use
+the desorption entry point below for atom removals; mixed additions/removals in
+one atomic batch remain planned for Phase R4.
+
+## Distributed incremental desorption update
+
+`DistributedDesorptionUpdater::apply_desorption()` handles synchronized
+solid-to-gas changes using removed atoms at their old positions and radii:
+
+```cpp
+gasaccess::DistributedDesorptionUpdater updater(precursor_radius);
+
+const auto result = updater.apply_desorption(
+    distributed_grid,
+    {removed_atoms, removed_atom_count});
+```
+
+Every rank calls this operation in the same order, including ranks with an
+empty local atom view. The caller must keep each removed atom record available
+until the collective returns and supply it exactly once in each synchronized
+rank view where it is needed for owned-voxel coverage.
+
+The updater performs these steps:
+
+1. Subtract atom footprints from owned blocker counts transactionally.
+2. Reduce global blocker-change and newly-gas counts.
+3. Initialize newly gas owned voxels as `ClosedVoid`.
+4. Seed newly gas voxels that are reservoir sources or touch existing
+   `OutsideAccessible` gas.
+5. Drain local six-neighbor frontiers through `ClosedVoid` voxels.
+6. Exchange only compact tangential offsets at crossed MPI faces and repeat
+   until every rank is inactive.
+7. Synchronize final face ghosts once before returning.
+
+Removing one of several overlapping blockers updates its count without
+running accessibility repair. A newly gas component without an accessible
+seed remains `ClosedVoid`. A seeded component is promoted incrementally, and
+ranks without local atom changes still join frontier exchange and termination
+collectives when propagation reaches them.
+
+`DistributedDesorptionUpdateResult` reports local/global occupancy changes,
+sorted changed owned coordinates, opened/visited voxel counts, participating
+ranks, communication rounds, and sent/received frontier entries. Construct the
+updater with `DesorptionRepairMode::FullReclassification` for the full
+distributed correctness-reference path.
+
+The incremental and reference implementations are differentially tested on
+one, two, four, and eight ranks. The worst correctness fixture opens more than
+half the grid and propagates through every rank. Details are in
+[`../benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md`](../benchmarks/PHASE_R3_DISTRIBUTED_DESORPTION.md).

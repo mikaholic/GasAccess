@@ -57,8 +57,10 @@ if(GASACCESS_ENABLE_MPI)
     find_package(MPI REQUIRED COMPONENTS CXX)
 
     add_library(gasaccess_mpi
+        src/distributed_desorption_updater.cpp
         src/distributed_deposition_updater.cpp
         src/distributed_exterior_classifier.cpp
+        src/distributed_opening_region_repair.cpp
         src/mpi_gas_grid.cpp
     )
     add_library(GasAccess::gasaccess_mpi ALIAS gasaccess_mpi)
@@ -575,6 +577,46 @@ if(BUILD_TESTING)
             )
             set_tests_properties(
                 gasaccess_distributed_updater_tests_${mpi_rank_count}_ranks
+                PROPERTIES
+                    LABELS "mpi"
+                    PROCESSORS ${mpi_rank_count}
+                    TIMEOUT 120
+            )
+        endforeach()
+
+        add_executable(gasaccess_distributed_desorption_tests
+            tests/test_distributed_desorption_updater.cpp
+        )
+        target_link_libraries(gasaccess_distributed_desorption_tests
+            PRIVATE GasAccess::gasaccess_mpi
+        )
+
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+            target_compile_options(gasaccess_distributed_desorption_tests PRIVATE
+                -Wall
+                -Wextra
+                -Wpedantic
+                -Wconversion
+                -Wsign-conversion
+            )
+        elseif(MSVC)
+            target_compile_options(gasaccess_distributed_desorption_tests
+                PRIVATE /W4
+            )
+        endif()
+
+        foreach(mpi_rank_count IN LISTS GASACCESS_MPI_TEST_RANK_COUNTS)
+            add_test(
+                NAME gasaccess_distributed_desorption_tests_${mpi_rank_count}_ranks
+                COMMAND
+                    ${MPIEXEC_EXECUTABLE}
+                    ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                    ${MPIEXEC_PREFLAGS}
+                    $<TARGET_FILE:gasaccess_distributed_desorption_tests>
+                    ${MPIEXEC_POSTFLAGS}
+            )
+            set_tests_properties(
+                gasaccess_distributed_desorption_tests_${mpi_rank_count}_ranks
                 PROPERTIES
                     LABELS "mpi"
                     PROCESSORS ${mpi_rank_count}
