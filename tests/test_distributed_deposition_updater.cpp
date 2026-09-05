@@ -170,12 +170,13 @@ std::optional<VoxelCoord> normalize_coordinate(
 }
 
 std::vector<VoxelCoord> make_barrier(
+    std::int64_t z_coordinate,
     const std::vector<VoxelCoord>& openings)
 {
     std::vector<VoxelCoord> solid_voxels;
     for (std::int64_t y = 0; y < 8; ++y) {
         for (std::int64_t x = 0; x < 8; ++x) {
-            const VoxelCoord voxel_coord{x, y, 4};
+            const VoxelCoord voxel_coord{x, y, z_coordinate};
             if (std::find(openings.begin(), openings.end(), voxel_coord)
                 == openings.end()) {
                 solid_voxels.push_back(voxel_coord);
@@ -183,6 +184,12 @@ std::vector<VoxelCoord> make_barrier(
         }
     }
     return solid_voxels;
+}
+
+std::vector<VoxelCoord> make_barrier(
+    const std::vector<VoxelCoord>& openings)
+{
+    return make_barrier(4, openings);
 }
 
 std::vector<Atom> atoms_for_voxels(
@@ -358,7 +365,10 @@ void run_sequence(
     const std::vector<VoxelCoord>& initial_solids,
     const std::vector<std::vector<VoxelCoord>>& deposition_events,
     const std::vector<ExpectedPath>& expected_paths,
-    int rank)
+    int rank,
+    const std::function<void(
+        const DistributedDepositionUpdateResult&,
+        const gasaccess::DepositionUpdateResult&)>& result_verifier = {})
 {
     REQUIRE(expected_paths.empty()
         || expected_paths.size() == deposition_events.size());
@@ -451,11 +461,17 @@ void run_sequence(
         REQUIRE(global_incremental_closed
             == serial_result.repair_closed_voxel_count);
         REQUIRE(global_sent == global_received);
+        if (result_verifier) {
+            result_verifier(incremental_result, serial_result);
+        }
     }
 }
 
 GridDimensions local_pinch_layout(int size)
 {
+    if (size == 8) {
+        return {2, 2, 2};
+    }
     if (size == 4) {
         return {2, 2, 1};
     }
@@ -478,7 +494,7 @@ void test_no_change_and_safe_updates(int rank, int size)
         grid_spec,
         local_pinch_layout(size),
         {},
-        {{{2, 2, 3}}},
+        {{{2, 2, 2}}},
         {ExpectedPath::TopologyFilterSafe},
         rank);
 }
@@ -530,6 +546,69 @@ void test_periodic_seam_and_multi_voxel_closure(int rank, int size)
         rank);
 }
 
+void test_dominant_cavity_repair_reaches_every_rank(int rank, int size)
+{
+    const auto grid_spec = make_grid_spec();
+    const GridDimensions x_layout{static_cast<std::uint64_t>(size), 1, 1};
+    const VoxelCoord opening{3, 3, 6};
+    constexpr std::uint64_t expected_closed = 8U * 8U * 6U;
+    constexpr std::uint64_t expected_changed = expected_closed + 1U;
+    REQUIRE(expected_closed > 8U * 8U * 8U / 2U);
+
+    run_sequence(
+        grid_spec,
+        x_layout,
+        make_barrier(6, {opening}),
+        {{opening}},
+        {ExpectedPath::DistributedRepair},
+        rank,
+        [size, expected_closed, expected_changed](
+            const DistributedDepositionUpdateResult& distributed_result,
+            const gasaccess::DepositionUpdateResult& serial_result) {
+            REQUIRE(serial_result.repair_closed_voxel_count == expected_closed);
+            REQUIRE(distributed_result.global_newly_solid_count == 1);
+            REQUIRE(!distributed_result.used_full_reclassification());
+            REQUIRE(distributed_result.local_repair_closed_voxel_count > 0);
+
+            const std::uint64_t local_participated =
+                distributed_result.local_repair_visited_voxel_count == 0
+                ? 0U
+                : 1U;
+            const auto local_changed = static_cast<std::uint64_t>(
+                distributed_result.changed_owned_voxel_coords.size());
+            std::uint64_t participating_ranks = 0;
+            std::uint64_t global_visited = 0;
+            std::uint64_t global_changed = 0;
+            MPI_Allreduce(
+                &local_participated,
+                &participating_ranks,
+                1,
+                MPI_UINT64_T,
+                MPI_SUM,
+                MPI_COMM_WORLD);
+            MPI_Allreduce(
+                &distributed_result.local_repair_visited_voxel_count,
+                &global_visited,
+                1,
+                MPI_UINT64_T,
+                MPI_SUM,
+                MPI_COMM_WORLD);
+            MPI_Allreduce(
+                &local_changed,
+                &global_changed,
+                1,
+                MPI_UINT64_T,
+                MPI_SUM,
+                MPI_COMM_WORLD);
+            REQUIRE(participating_ranks == static_cast<std::uint64_t>(size));
+            REQUIRE(global_visited >= expected_closed);
+            REQUIRE(global_changed == expected_changed);
+            if (size > 1) {
+                REQUIRE(distributed_result.repair_communication_round_count > 0);
+            }
+        });
+}
+
 void test_deterministic_deposition_sequence(int rank, int size)
 {
     const auto grid_spec = make_grid_spec();
@@ -574,6 +653,9 @@ int main(int argc, char* argv[])
          }},
         {"periodic seam and multi-voxel closure", [&]() {
              test_periodic_seam_and_multi_voxel_closure(rank, size);
+         }},
+        {"dominant cavity repair reaches every rank", [&]() {
+             test_dominant_cavity_repair_reaches_every_rank(rank, size);
          }},
         {"deterministic deposition sequence", [&]() {
              test_deterministic_deposition_sequence(rank, size);

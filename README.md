@@ -96,7 +96,8 @@ test executables, `build/gasaccess_mpi_grid_tests`,
 `build/gasaccess_distributed_classifier_tests`, and
 `build/gasaccess_distributed_updater_tests`. Phase 14 also produces
 `build/gasaccess_spparks_mock_driver` and
-`build/gasaccess_spparks_mock_integration_tests`.
+`build/gasaccess_spparks_mock_integration_tests`. The lifecycle efficiency
+matrix is provided by `build/gasaccess_mpi_efficiency_driver`.
 
 - `build/gasaccess_grid_tests`
 - `build/gasaccess_atom_voxelizer_tests`
@@ -128,10 +129,19 @@ To display every individual test-group result directly:
 ./build/gasaccess_affected_region_repair_tests
 ```
 
-The registered MPI tests exercise one, two, and four ranks:
+The registered MPI tests exercise one, two, four, and eight ranks by default:
 
 ```sh
 ctest --test-dir build --output-on-failure -L mpi
+```
+
+Override the rank matrix at configure time when a machine has a different MPI
+slot budget:
+
+```sh
+cmake -S . -B build \
+    -DGASACCESS_ENABLE_MPI=ON \
+    -DGASACCESS_MPI_TEST_RANK_COUNTS="1;2;4;8"
 ```
 
 The MPI data contract, SPPARKS field mapping, boundary override, aligned-grid
@@ -159,6 +169,29 @@ the gas grid, then calls
 `query.is_site_accessible(atom_position)` for each owned atom. Phase 14 timing
 results are recorded in
 [`docs/benchmarks/PHASE14_SPPARKS_MOCK.md`](docs/benchmarks/PHASE14_SPPARKS_MOCK.md).
+
+## MPI lifecycle efficiency driver
+
+The repeated efficiency driver covers KMC initialization, cached coordinate
+queries, and collective deposition repair:
+
+```sh
+mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
+    --operation initialization --scenario million-slab
+
+mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
+    --operation query --scenario million-slab --query-count 1000000
+
+mpiexec -n 8 ./build/gasaccess_mpi_efficiency_driver \
+    --operation repair --case worst --nx 128 --ny 128 --nz 128
+```
+
+Fast operations repeat until the requested cumulative measured duration is
+reached. The primary result is average slowest-rank operation time. Repair
+cases include detection-only, best, medium, and a 75%-volume all-rank flood
+fill. Commands, fixture definitions, correctness checks, and the output schema
+are documented in
+[`docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md`](docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md).
 
 ## Reference driver
 

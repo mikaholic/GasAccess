@@ -44,6 +44,9 @@ elseif(MSVC)
 endif()
 
 option(GASACCESS_ENABLE_MPI "Build the optional MPI gas-grid layer" OFF)
+set(GASACCESS_MPI_TEST_RANK_COUNTS "1;2;4;8" CACHE STRING
+    "MPI rank counts used by registered GasAccess tests"
+)
 set(GASACCESS_SPPARKS_SOURCE_DIR "" CACHE PATH
     "Optional SPPARKS src directory used for adapter compatibility compilation"
 )
@@ -87,6 +90,7 @@ if(GASACCESS_ENABLE_MPI)
     endif()
 
     add_library(gasaccess_mock_spparks STATIC
+        tools/efficiency_fixture.cpp
         tools/mock_spparks.cpp
         tools/mock_spparks_fixture.cpp
     )
@@ -106,6 +110,13 @@ if(GASACCESS_ENABLE_MPI)
         PRIVATE gasaccess_mock_spparks
     )
 
+    add_executable(gasaccess_mpi_efficiency_driver
+        tools/mpi_efficiency_driver.cpp
+    )
+    target_link_libraries(gasaccess_mpi_efficiency_driver
+        PRIVATE gasaccess_mock_spparks
+    )
+
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(gasaccess_mock_spparks PRIVATE
             -Wall
@@ -121,9 +132,17 @@ if(GASACCESS_ENABLE_MPI)
             -Wconversion
             -Wsign-conversion
         )
+        target_compile_options(gasaccess_mpi_efficiency_driver PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+        )
     elseif(MSVC)
         target_compile_options(gasaccess_mock_spparks PRIVATE /W4)
         target_compile_options(gasaccess_spparks_mock_driver PRIVATE /W4)
+        target_compile_options(gasaccess_mpi_efficiency_driver PRIVATE /W4)
     endif()
 endif()
 
@@ -383,7 +402,7 @@ if(BUILD_TESTING)
             target_compile_options(gasaccess_mpi_grid_tests PRIVATE /W4)
         endif()
 
-        foreach(mpi_rank_count IN ITEMS 1 2 4)
+        foreach(mpi_rank_count IN LISTS GASACCESS_MPI_TEST_RANK_COUNTS)
             add_test(
                 NAME gasaccess_mpi_grid_tests_${mpi_rank_count}_ranks
                 COMMAND
@@ -423,7 +442,7 @@ if(BUILD_TESTING)
             )
         endif()
 
-        foreach(mpi_rank_count IN ITEMS 1 2 4)
+        foreach(mpi_rank_count IN LISTS GASACCESS_MPI_TEST_RANK_COUNTS)
             add_test(
                 NAME gasaccess_spparks_mock_tests_${mpi_rank_count}_ranks
                 COMMAND
@@ -442,7 +461,7 @@ if(BUILD_TESTING)
             )
         endforeach()
 
-        foreach(mpi_rank_count IN ITEMS 1 2 4)
+        foreach(mpi_rank_count IN LISTS GASACCESS_MPI_TEST_RANK_COUNTS)
             add_test(
                 NAME gasaccess_spparks_million_${mpi_rank_count}_ranks
                 COMMAND
@@ -518,7 +537,7 @@ if(BUILD_TESTING)
             )
         endif()
 
-        foreach(mpi_rank_count IN ITEMS 1 2 4)
+        foreach(mpi_rank_count IN LISTS GASACCESS_MPI_TEST_RANK_COUNTS)
             add_test(
                 NAME gasaccess_distributed_updater_tests_${mpi_rank_count}_ranks
                 COMMAND
@@ -558,7 +577,7 @@ if(BUILD_TESTING)
             )
         endif()
 
-        foreach(mpi_rank_count IN ITEMS 1 2 4)
+        foreach(mpi_rank_count IN LISTS GASACCESS_MPI_TEST_RANK_COUNTS)
             add_test(
                 NAME gasaccess_distributed_classifier_tests_${mpi_rank_count}_ranks
                 COMMAND
@@ -575,6 +594,82 @@ if(BUILD_TESTING)
                     PROCESSORS ${mpi_rank_count}
                     TIMEOUT 60
             )
+        endforeach()
+
+        foreach(mpi_rank_count IN LISTS GASACCESS_MPI_TEST_RANK_COUNTS)
+            add_test(
+                NAME gasaccess_efficiency_initialization_${mpi_rank_count}_ranks
+                COMMAND
+                    ${MPIEXEC_EXECUTABLE}
+                    ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                    ${MPIEXEC_PREFLAGS}
+                    $<TARGET_FILE:gasaccess_mpi_efficiency_driver>
+                    --operation initialization
+                    --scenario open-trench
+                    --min-measured-seconds 0.01
+                    --min-repetitions 2
+                    --max-repetitions 20
+                    --warmup-repetitions 0
+                    ${MPIEXEC_POSTFLAGS}
+            )
+            set_tests_properties(
+                gasaccess_efficiency_initialization_${mpi_rank_count}_ranks
+                PROPERTIES
+                    LABELS "benchmark;efficiency;mpi"
+                    PROCESSORS ${mpi_rank_count}
+                    TIMEOUT 120
+                    PASS_REGULAR_EXPRESSION "acceptance=pass"
+            )
+
+            add_test(
+                NAME gasaccess_efficiency_query_${mpi_rank_count}_ranks
+                COMMAND
+                    ${MPIEXEC_EXECUTABLE}
+                    ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                    ${MPIEXEC_PREFLAGS}
+                    $<TARGET_FILE:gasaccess_mpi_efficiency_driver>
+                    --operation query
+                    --scenario open-trench
+                    --query-count 10000
+                    --min-measured-seconds 0.01
+                    --warmup-repetitions 1
+                    ${MPIEXEC_POSTFLAGS}
+            )
+            set_tests_properties(
+                gasaccess_efficiency_query_${mpi_rank_count}_ranks
+                PROPERTIES
+                    LABELS "benchmark;efficiency;mpi"
+                    PROCESSORS ${mpi_rank_count}
+                    TIMEOUT 120
+                    PASS_REGULAR_EXPRESSION "acceptance=pass"
+            )
+
+            foreach(repair_case IN ITEMS baseline best medium worst)
+                add_test(
+                    NAME gasaccess_efficiency_repair_${repair_case}_${mpi_rank_count}_ranks
+                    COMMAND
+                        ${MPIEXEC_EXECUTABLE}
+                        ${MPIEXEC_NUMPROC_FLAG} ${mpi_rank_count}
+                        ${MPIEXEC_PREFLAGS}
+                        $<TARGET_FILE:gasaccess_mpi_efficiency_driver>
+                        --operation repair
+                        --case ${repair_case}
+                        --nx 96 --ny 24 --nz 32
+                        --min-measured-seconds 0
+                        --min-repetitions 1
+                        --max-repetitions 1
+                        --warmup-repetitions 0
+                        ${MPIEXEC_POSTFLAGS}
+                )
+                set_tests_properties(
+                    gasaccess_efficiency_repair_${repair_case}_${mpi_rank_count}_ranks
+                    PROPERTIES
+                        LABELS "benchmark;efficiency;mpi"
+                        PROCESSORS ${mpi_rank_count}
+                        TIMEOUT 120
+                        PASS_REGULAR_EXPRESSION "acceptance=pass"
+                )
+            endforeach()
         endforeach()
     endif()
 
