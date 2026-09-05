@@ -254,6 +254,163 @@ std::int64_t checked_int64(std::uint64_t value, const char* field_name)
     return static_cast<std::int64_t>(value);
 }
 
+void validate_owned_atom_view(
+    const DistributedGasGrid& gas_grid,
+    AtomView atom_view,
+    double precursor_radius)
+{
+    if (atom_view.count != 0 && atom_view.atoms == nullptr) {
+        throw std::invalid_argument("atom view has a null pointer with nonzero count");
+    }
+    if (!std::isfinite(precursor_radius) || precursor_radius < 0.0) {
+        throw std::invalid_argument("precursor radius must be finite and nonnegative");
+    }
+
+    for (std::size_t atom_index = 0; atom_index < atom_view.count; ++atom_index) {
+        const auto& atom = atom_view.atoms[atom_index];
+        require_finite_point(atom.position, "atom position");
+        if (!std::isfinite(atom.radius) || atom.radius < 0.0) {
+            throw std::invalid_argument("atom radius must be finite and nonnegative");
+        }
+        const double excluded_radius = atom.radius + precursor_radius;
+        if (!std::isfinite(excluded_radius)
+            || !std::isfinite(excluded_radius * excluded_radius)) {
+            throw std::invalid_argument("excluded radius is not finite");
+        }
+        validate_atom_ghost_coverage(
+            gas_grid.decomposition().spec().atom_ghost_distance,
+            excluded_radius);
+        if (excluded_radius
+                > gas_grid.decomposition().spec().maximum_excluded_radius
+            && !nearly_equal(
+                excluded_radius,
+                gas_grid.decomposition().spec().maximum_excluded_radius)) {
+            throw std::invalid_argument(
+                "atom excluded radius exceeds the declared maximum");
+        }
+    }
+}
+
+template <typename Visitor>
+void for_each_owned_covered_voxel(
+    const DistributedGasGrid& gas_grid,
+    AtomView atom_view,
+    double precursor_radius,
+    Visitor&& visitor)
+{
+    const auto& grid_spec = gas_grid.global_grid_spec();
+    const Point3 lengths{
+        grid_spec.spacing.x * static_cast<double>(grid_spec.dimensions.x),
+        grid_spec.spacing.y * static_cast<double>(grid_spec.dimensions.y),
+        grid_spec.spacing.z * static_cast<double>(grid_spec.dimensions.z)
+    };
+    for (std::size_t atom_index = 0; atom_index < atom_view.count; ++atom_index) {
+        const auto& atom = atom_view.atoms[atom_index];
+        Point3 atom_position = atom.position;
+        if (grid_spec.periodic.x) {
+            atom_position.x = wrap_position(
+                atom_position.x, grid_spec.origin.x, lengths.x);
+        }
+        if (grid_spec.periodic.y) {
+            atom_position.y = wrap_position(
+                atom_position.y, grid_spec.origin.y, lengths.y);
+        }
+        if (grid_spec.periodic.z) {
+            atom_position.z = wrap_position(
+                atom_position.z, grid_spec.origin.z, lengths.z);
+        }
+        const auto atom_voxel = gas_grid.locate_voxel(atom_position);
+        if (!atom_voxel) {
+            continue;
+        }
+
+        const double excluded_radius = atom.radius + precursor_radius;
+        const double excluded_radius_squared = excluded_radius * excluded_radius;
+        const auto x_candidates = make_axis_candidates(
+            static_cast<std::uint64_t>(atom_voxel->x),
+            grid_spec.dimensions.x,
+            excluded_radius,
+            grid_spec.spacing.x,
+            grid_spec.periodic.x);
+        const auto y_candidates = make_axis_candidates(
+            static_cast<std::uint64_t>(atom_voxel->y),
+            grid_spec.dimensions.y,
+            excluded_radius,
+            grid_spec.spacing.y,
+            grid_spec.periodic.y);
+        const auto z_candidates = make_axis_candidates(
+            static_cast<std::uint64_t>(atom_voxel->z),
+            grid_spec.dimensions.z,
+            excluded_radius,
+            grid_spec.spacing.z,
+            grid_spec.periodic.z);
+
+        for (std::uint64_t z_offset = 0; z_offset < z_candidates.count; ++z_offset) {
+            const auto z = axis_index(z_candidates, z_offset);
+            const double z_center = grid_spec.origin.z
+                + (static_cast<double>(z) + 0.5) * grid_spec.spacing.z;
+            const double z_distance = axis_distance(
+                z_center, atom_position.z, lengths.z, grid_spec.periodic.z);
+            if (z_distance > excluded_radius) {
+                continue;
+            }
+            const double z_distance_squared = z_distance * z_distance;
+            for (std::uint64_t y_offset = 0; y_offset < y_candidates.count; ++y_offset) {
+                const auto y = axis_index(y_candidates, y_offset);
+                const double y_center = grid_spec.origin.y
+                    + (static_cast<double>(y) + 0.5) * grid_spec.spacing.y;
+                const double y_distance = axis_distance(
+                    y_center, atom_position.y, lengths.y, grid_spec.periodic.y);
+                const double yz_distance_squared = y_distance * y_distance
+                    + z_distance_squared;
+                if (y_distance > excluded_radius
+                    || yz_distance_squared > excluded_radius_squared) {
+                    continue;
+                }
+                for (std::uint64_t x_offset = 0;
+                     x_offset < x_candidates.count;
+                     ++x_offset) {
+                    const auto x = axis_index(x_candidates, x_offset);
+                    const VoxelCoord coordinate{
+                        static_cast<std::int64_t>(x),
+                        static_cast<std::int64_t>(y),
+                        static_cast<std::int64_t>(z)
+                    };
+                    if (!gas_grid.owns(coordinate)) {
+                        continue;
+                    }
+                    const double x_center = grid_spec.origin.x
+                        + (static_cast<double>(x) + 0.5) * grid_spec.spacing.x;
+                    const double x_distance = axis_distance(
+                        x_center, atom_position.x, lengths.x, grid_spec.periodic.x);
+                    const double distance_squared = x_distance * x_distance
+                        + yz_distance_squared;
+                    if (x_distance <= excluded_radius
+                        && distance_squared <= excluded_radius_squared) {
+                        visitor(coordinate);
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct OwnedVoxelDelta {
+    VoxelCoord voxel_coord{};
+    int delta = 0;
+};
+
+bool voxel_coord_less(const VoxelCoord& lhs, const VoxelCoord& rhs) noexcept
+{
+    if (lhs.z != rhs.z) {
+        return lhs.z < rhs.z;
+    }
+    if (lhs.y != rhs.y) {
+        return lhs.y < rhs.y;
+    }
+    return lhs.x < rhs.x;
+}
+
 }  // namespace
 
 AlignedGridGeometry make_aligned_grid_geometry(
@@ -603,6 +760,9 @@ DistributedGasGrid::DistributedGasGrid(
     states_.assign(
         static_cast<std::size_t>(storage_count),
         GasState::Unclassified);
+    owned_blocker_counts_.assign(
+        static_cast<std::size_t>(owned_voxel_count_),
+        VoxelBlockerCount{0});
     owned_state_counts_[gas_state_index(GasState::Unclassified)] =
         owned_voxel_count_;
 
@@ -706,6 +866,15 @@ GasState DistributedGasGrid::gas_state(
     return states_[state_index(*coordinate)];
 }
 
+VoxelBlockerCount DistributedGasGrid::owned_blocker_count(
+    const VoxelCoord& global_voxel_coord) const
+{
+    if (!owns(global_voxel_coord)) {
+        throw std::out_of_range("cannot query a blocker count for a non-owned voxel");
+    }
+    return owned_blocker_counts_[owned_blocker_index(global_voxel_coord)];
+}
+
 std::uint64_t DistributedGasGrid::owned_gas_state_count(
     GasState gas_state_value) const
 {
@@ -726,6 +895,39 @@ void DistributedGasGrid::set_owned_gas_state(
         throw std::out_of_range("cannot set a gas state for a non-owned voxel");
     }
     const auto coordinate = local_coord(global_voxel_coord);
+    if (states_[state_index(*coordinate)] == gas_state_value) {
+        return;
+    }
+    owned_blocker_counts_[owned_blocker_index(global_voxel_coord)] =
+        gas_state_value == GasState::Solid
+        ? VoxelBlockerCount{1}
+        : VoxelBlockerCount{0};
+    set_owned_state_only(global_voxel_coord, gas_state_value);
+}
+
+void DistributedGasGrid::set_owned_blocker_count(
+    const VoxelCoord& global_voxel_coord,
+    VoxelBlockerCount blocker_count_value)
+{
+    if (!owns(global_voxel_coord)) {
+        throw std::out_of_range("cannot set a blocker count for a non-owned voxel");
+    }
+    owned_blocker_counts_[owned_blocker_index(global_voxel_coord)] =
+        blocker_count_value;
+    const auto coordinate = local_coord(global_voxel_coord);
+    const auto current_state = states_[state_index(*coordinate)];
+    if (blocker_count_value != 0) {
+        set_owned_state_only(global_voxel_coord, GasState::Solid);
+    } else if (current_state == GasState::Solid) {
+        set_owned_state_only(global_voxel_coord, GasState::Unclassified);
+    }
+}
+
+void DistributedGasGrid::set_owned_state_only(
+    const VoxelCoord& global_voxel_coord,
+    GasState gas_state_value)
+{
+    const auto coordinate = local_coord(global_voxel_coord);
     const auto index = state_index(*coordinate);
     const auto previous_state = states_[index];
     if (previous_state == gas_state_value) {
@@ -743,6 +945,12 @@ void DistributedGasGrid::fill_owned_gas_state(GasState gas_state_value)
     }
     owned_state_counts_.fill(0);
     owned_state_counts_[gas_state_index(gas_state_value)] = owned_voxel_count_;
+    std::fill(
+        owned_blocker_counts_.begin(),
+        owned_blocker_counts_.end(),
+        gas_state_value == GasState::Solid
+            ? VoxelBlockerCount{1}
+            : VoxelBlockerCount{0});
     const auto& dimensions = owned_range().dimensions;
     for (std::uint64_t z = 1; z <= dimensions.z; ++z) {
         for (std::uint64_t y = 1; y <= dimensions.y; ++y) {
@@ -931,20 +1139,127 @@ std::uint64_t DistributedGasGrid::voxelize_owned_atoms_impl(
                         || distance_squared > excluded_radius_squared) {
                         continue;
                     }
-                    if (gas_state(coordinate) != GasState::Solid) {
+                    const auto previous_count = owned_blocker_count(coordinate);
+                    if (previous_count
+                        == std::numeric_limits<VoxelBlockerCount>::max()) {
+                        throw std::overflow_error("voxel blocker count overflow");
+                    }
+                    if (previous_count == 0) {
                         if (removed_voxels != nullptr) {
                             removed_voxels->push_back({
                                 coordinate,
                                 gas_state(coordinate)});
                         }
-                        set_owned_gas_state(coordinate, GasState::Solid);
                         ++newly_solid_count;
                     }
+                    set_owned_blocker_count(coordinate, previous_count + 1);
                 }
             }
         }
     }
     return newly_solid_count;
+}
+
+AtomChangeOccupancyResult DistributedGasGrid::apply_owned_atom_changes(
+    const AtomChangeBatch& atom_changes,
+    double precursor_radius)
+{
+    std::vector<DistributedVoxelOccupancyChange> voxel_changes;
+    return apply_owned_atom_changes(
+        atom_changes,
+        precursor_radius,
+        voxel_changes);
+}
+
+AtomChangeOccupancyResult DistributedGasGrid::apply_owned_atom_changes(
+    const AtomChangeBatch& atom_changes,
+    double precursor_radius,
+    std::vector<DistributedVoxelOccupancyChange>& voxel_changes)
+{
+    validate_owned_atom_view(*this, atom_changes.added_atoms, precursor_radius);
+    validate_owned_atom_view(*this, atom_changes.removed_atoms, precursor_radius);
+
+    std::vector<OwnedVoxelDelta> deltas;
+    for_each_owned_covered_voxel(
+        *this,
+        atom_changes.added_atoms,
+        precursor_radius,
+        [&](const VoxelCoord& coordinate) {
+            deltas.push_back({coordinate, 1});
+        });
+    for_each_owned_covered_voxel(
+        *this,
+        atom_changes.removed_atoms,
+        precursor_radius,
+        [&](const VoxelCoord& coordinate) {
+            deltas.push_back({coordinate, -1});
+        });
+    std::sort(
+        deltas.begin(),
+        deltas.end(),
+        [](const OwnedVoxelDelta& lhs, const OwnedVoxelDelta& rhs) {
+            return voxel_coord_less(lhs.voxel_coord, rhs.voxel_coord);
+        });
+
+    std::vector<DistributedVoxelOccupancyChange> prepared_changes;
+    prepared_changes.reserve(deltas.size());
+    AtomChangeOccupancyResult result{};
+    for (std::size_t begin = 0; begin < deltas.size();) {
+        std::size_t end = begin;
+        std::uint64_t addition_count = 0;
+        std::uint64_t removal_count = 0;
+        while (end < deltas.size()
+               && deltas[end].voxel_coord == deltas[begin].voxel_coord) {
+            if (deltas[end].delta > 0) {
+                ++addition_count;
+            } else {
+                ++removal_count;
+            }
+            ++end;
+        }
+        const auto coordinate = deltas[begin].voxel_coord;
+        const auto previous_count = owned_blocker_count(coordinate);
+        VoxelBlockerCount updated_count = previous_count;
+        if (addition_count >= removal_count) {
+            const auto increase = addition_count - removal_count;
+            if (increase
+                > std::numeric_limits<VoxelBlockerCount>::max()
+                    - previous_count) {
+                throw std::overflow_error(
+                    "atom addition overflows a voxel blocker count");
+            }
+            updated_count = static_cast<VoxelBlockerCount>(
+                previous_count + increase);
+        } else {
+            const auto decrease = removal_count - addition_count;
+            if (decrease > previous_count) {
+                throw std::underflow_error(
+                    "atom removal underflows a voxel blocker count");
+            }
+            updated_count = static_cast<VoxelBlockerCount>(
+                previous_count - decrease);
+        }
+        if (updated_count != previous_count) {
+            prepared_changes.push_back({
+                coordinate,
+                previous_count,
+                updated_count,
+                gas_state(coordinate)});
+            ++result.blocker_count_changed_voxel_count;
+            if (previous_count == 0) {
+                ++result.newly_solid_count;
+            } else if (updated_count == 0) {
+                ++result.newly_gas_count;
+            }
+        }
+        begin = end;
+    }
+
+    for (const auto& change : prepared_changes) {
+        set_owned_blocker_count(change.voxel_coord, change.blocker_count);
+    }
+    voxel_changes.swap(prepared_changes);
+    return result;
 }
 
 void DistributedGasGrid::exchange_ghost_states()
@@ -1266,6 +1581,20 @@ std::size_t DistributedGasGrid::state_index(
     const auto index = (local_coordinate.z * storage_dimensions_.y
         + local_coordinate.y) * storage_dimensions_.x + local_coordinate.x;
     return static_cast<std::size_t>(index);
+}
+
+std::size_t DistributedGasGrid::owned_blocker_index(
+    const VoxelCoord& global_voxel_coord) const noexcept
+{
+    const auto& range = owned_range();
+    const auto x = static_cast<std::uint64_t>(
+        global_voxel_coord.x - range.begin.x);
+    const auto y = static_cast<std::uint64_t>(
+        global_voxel_coord.y - range.begin.y);
+    const auto z = static_cast<std::uint64_t>(
+        global_voxel_coord.z - range.begin.z);
+    return static_cast<std::size_t>(
+        (z * range.dimensions.y + y) * range.dimensions.x + x);
 }
 
 std::size_t DistributedGasGrid::face_element_count(Face face) const

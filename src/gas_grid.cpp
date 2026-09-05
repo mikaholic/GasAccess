@@ -55,7 +55,11 @@ GasGrid::GasGrid(GridSpec grid_spec)
     if (state_count > states_.max_size()) {
         throw std::length_error("voxel count exceeds state container capacity");
     }
+    if (state_count > blocker_counts_.max_size()) {
+        throw std::length_error("voxel count exceeds blocker-count container capacity");
+    }
     states_.assign(state_count, GasState::Unclassified);
+    blocker_counts_.assign(state_count, VoxelBlockerCount{0});
     state_counts_[state_index(GasState::Unclassified)] = voxel_count_;
     initialize_explicit_sources();
 }
@@ -272,6 +276,20 @@ GasState GasGrid::gas_state(const VoxelCoord& voxel_coord_value) const
     return gas_state(voxel_id(voxel_coord_value));
 }
 
+VoxelBlockerCount GasGrid::blocker_count(VoxelId voxel_id) const
+{
+    if (voxel_id >= voxel_count_) {
+        throw std::out_of_range("voxel identifier is outside the grid");
+    }
+    return blocker_counts_[static_cast<std::size_t>(voxel_id)];
+}
+
+VoxelBlockerCount GasGrid::blocker_count(
+    const VoxelCoord& voxel_coord_value) const
+{
+    return blocker_count(voxel_id(voxel_coord_value));
+}
+
 VoxelId GasGrid::gas_state_count(GasState gas_state) const
 {
     return state_counts_[state_index(gas_state)];
@@ -282,6 +300,36 @@ void GasGrid::set_gas_state(VoxelId voxel_id, GasState gas_state)
     if (voxel_id >= voxel_count_) {
         throw std::out_of_range("voxel identifier is outside the grid");
     }
+    static_cast<void>(state_index(gas_state));
+    const auto index = static_cast<std::size_t>(voxel_id);
+    if (states_[index] == gas_state) {
+        return;
+    }
+
+    blocker_counts_[index] = gas_state == GasState::Solid
+        ? VoxelBlockerCount{1}
+        : VoxelBlockerCount{0};
+    set_state_only(voxel_id, gas_state);
+}
+
+void GasGrid::set_blocker_count(
+    VoxelId voxel_id,
+    VoxelBlockerCount blocker_count_value)
+{
+    if (voxel_id >= voxel_count_) {
+        throw std::out_of_range("voxel identifier is outside the grid");
+    }
+    const auto index = static_cast<std::size_t>(voxel_id);
+    blocker_counts_[index] = blocker_count_value;
+    if (blocker_count_value != 0) {
+        set_state_only(voxel_id, GasState::Solid);
+    } else if (states_[index] == GasState::Solid) {
+        set_state_only(voxel_id, GasState::Unclassified);
+    }
+}
+
+void GasGrid::set_state_only(VoxelId voxel_id, GasState gas_state)
+{
     const auto new_state_index = state_index(gas_state);
     auto& current_state = states_[static_cast<std::size_t>(voxel_id)];
     if (current_state == gas_state) {
@@ -298,6 +346,12 @@ void GasGrid::fill_gas_state(GasState gas_state)
 {
     const auto new_state_index = state_index(gas_state);
     std::fill(states_.begin(), states_.end(), gas_state);
+    std::fill(
+        blocker_counts_.begin(),
+        blocker_counts_.end(),
+        gas_state == GasState::Solid
+            ? VoxelBlockerCount{1}
+            : VoxelBlockerCount{0});
     state_counts_.fill(0);
     state_counts_[new_state_index] = voxel_count_;
 }

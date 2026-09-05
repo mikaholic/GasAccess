@@ -21,9 +21,11 @@ namespace {
 
 using gasaccess::AlignedGridGeometry;
 using gasaccess::Atom;
+using gasaccess::AtomChangeBatch;
 using gasaccess::AtomVoxelizer;
 using gasaccess::DistributedGasAccessibilityQuery;
 using gasaccess::DistributedGasGrid;
+using gasaccess::DistributedVoxelOccupancyChange;
 using gasaccess::Face;
 using gasaccess::GasGrid;
 using gasaccess::GasState;
@@ -436,6 +438,154 @@ void test_distributed_non_cubic_voxelization(int rank, int size)
         std::invalid_argument);
 }
 
+void test_owned_blocker_count_invariant(int rank, int size)
+{
+    const GridDimensions process_grid{
+        static_cast<std::uint64_t>(size),
+        1,
+        1
+    };
+    const auto grid_spec = make_grid_spec();
+    DistributedGasGrid grid(
+        grid_spec,
+        make_decomposition_spec(grid_spec, process_grid, rank));
+    const auto coordinate = grid.owned_range().begin;
+    REQUIRE(grid.owned_blocker_count(coordinate) == 0);
+
+    grid.set_owned_blocker_count(coordinate, 2);
+    REQUIRE(grid.owned_blocker_count(coordinate) == 2);
+    REQUIRE(grid.gas_state(coordinate) == GasState::Solid);
+    REQUIRE(grid.owned_gas_state_count(GasState::Solid) == 1);
+    grid.set_owned_blocker_count(coordinate, 1);
+    REQUIRE(grid.owned_gas_state_count(GasState::Solid) == 1);
+    grid.set_owned_blocker_count(coordinate, 0);
+    REQUIRE(grid.gas_state(coordinate) == GasState::Unclassified);
+
+    grid.set_owned_gas_state(coordinate, GasState::Solid);
+    REQUIRE(grid.owned_blocker_count(coordinate) == 1);
+    grid.set_owned_gas_state(coordinate, GasState::ClosedVoid);
+    REQUIRE(grid.owned_blocker_count(coordinate) == 0);
+
+    grid.fill_owned_gas_state(GasState::Solid);
+    const auto& range = grid.owned_range();
+    for (std::int64_t z = range.begin.z; z < range.end.z; ++z) {
+        for (std::int64_t y = range.begin.y; y < range.end.y; ++y) {
+            for (std::int64_t x = range.begin.x; x < range.end.x; ++x) {
+                REQUIRE(grid.owned_blocker_count({x, y, z}) == 1);
+            }
+        }
+    }
+    grid.fill_owned_gas_state(GasState::OutsideAccessible);
+    REQUIRE(grid.owned_blocker_count(coordinate) == 0);
+
+    if (size > 1) {
+        VoxelCoord non_owned = coordinate;
+        non_owned.x = rank == 0
+            ? range.end.x
+            : range.begin.x - 1;
+        REQUIRE(!grid.owns(non_owned));
+        REQUIRE_THROWS_AS(
+            grid.owned_blocker_count(non_owned),
+            std::out_of_range);
+    }
+}
+
+void test_distributed_mixed_change_parity_and_rollback(int rank, int size)
+{
+    const GridDimensions process_grid{
+        static_cast<std::uint64_t>(size),
+        1,
+        1
+    };
+    auto grid_spec = make_grid_spec();
+    constexpr double precursor_radius = 0.0;
+    const Atom first{{0.75, 3.875, 8.375}, 0.0};
+    const Atom second{{2.25, 3.875, 8.375}, 0.0};
+    const Atom periodic_third{{-1.25, 3.875, 8.375}, 0.0};
+    const std::vector<Atom> initial_atoms{first, first, second};
+    const std::vector<Atom> additions{first, periodic_third};
+    const std::vector<Atom> removals{first, second};
+
+    DistributedGasGrid distributed_grid(
+        grid_spec,
+        make_decomposition_spec(grid_spec, process_grid, rank));
+    distributed_grid.voxelize_owned_atoms(
+        {initial_atoms.data(), initial_atoms.size()},
+        precursor_radius);
+
+    GasGrid serial_grid(grid_spec);
+    const AtomVoxelizer voxelizer(precursor_radius);
+    voxelizer.voxelize(
+        serial_grid,
+        {initial_atoms.data(), initial_atoms.size()});
+    const AtomChangeBatch batch{
+        {additions.data(), additions.size()},
+        {removals.data(), removals.size()}
+    };
+    const auto serial_result = voxelizer.apply_atom_changes(serial_grid, batch);
+
+    std::vector<DistributedVoxelOccupancyChange> changes;
+    const auto local_result = distributed_grid.apply_owned_atom_changes(
+        batch,
+        precursor_radius,
+        changes);
+    std::array<std::uint64_t, 3> local_counts{{
+        local_result.blocker_count_changed_voxel_count,
+        local_result.newly_solid_count,
+        local_result.newly_gas_count
+    }};
+    std::array<std::uint64_t, 3> global_counts{};
+    MPI_Allreduce(
+        local_counts.data(),
+        global_counts.data(),
+        static_cast<int>(global_counts.size()),
+        MPI_UINT64_T,
+        MPI_SUM,
+        MPI_COMM_WORLD);
+    REQUIRE(global_counts[0]
+        == serial_result.blocker_count_changed_voxel_count);
+    REQUIRE(global_counts[1] == serial_result.newly_solid_count);
+    REQUIRE(global_counts[2] == serial_result.newly_gas_count);
+
+    const auto& range = distributed_grid.owned_range();
+    for (std::int64_t z = range.begin.z; z < range.end.z; ++z) {
+        for (std::int64_t y = range.begin.y; y < range.end.y; ++y) {
+            for (std::int64_t x = range.begin.x; x < range.end.x; ++x) {
+                const VoxelCoord coordinate{x, y, z};
+                REQUIRE(distributed_grid.owned_blocker_count(coordinate)
+                    == serial_grid.blocker_count(coordinate));
+                REQUIRE(distributed_grid.gas_state(coordinate)
+                    == serial_grid.gas_state(coordinate));
+            }
+        }
+    }
+
+    const Atom invalid{{0.75, 3.875, 8.375}, -0.1};
+    changes.assign(1, {{-1, -1, -1}, 7, 8, GasState::ClosedVoid});
+    REQUIRE_THROWS_AS(
+        distributed_grid.apply_owned_atom_changes(
+            {{&invalid, 1}, {&periodic_third, 1}},
+            precursor_radius,
+            changes),
+        std::invalid_argument);
+    REQUIRE(changes.size() == 1);
+    REQUIRE((changes[0].voxel_coord == VoxelCoord{-1, -1, -1}));
+
+    const VoxelCoord absent_coordinate{2, 2, 3};
+    if (distributed_grid.owns(absent_coordinate)) {
+        const Atom absent{distributed_grid.voxel_center(absent_coordinate), 0.0};
+        REQUIRE(distributed_grid.owned_blocker_count(absent_coordinate) == 0);
+        REQUIRE_THROWS_AS(
+            distributed_grid.apply_owned_atom_changes(
+                {{nullptr, 0}, {&absent, 1}},
+                precursor_radius,
+                changes),
+            std::underflow_error);
+        REQUIRE(distributed_grid.owned_blocker_count(absent_coordinate) == 0);
+        REQUIRE(changes.size() == 1);
+    }
+}
+
 }  // namespace
 
 int main(int argc, char* argv[])
@@ -456,6 +606,12 @@ int main(int argc, char* argv[])
          }},
         {"distributed non-cubic voxelization", [&]() {
              test_distributed_non_cubic_voxelization(rank, size);
+         }},
+        {"owned blocker-count invariant", [&]() {
+             test_owned_blocker_count_invariant(rank, size);
+         }},
+        {"distributed mixed-change parity and rollback", [&]() {
+             test_distributed_mixed_change_parity_and_rollback(rank, size);
          }}
     };
 

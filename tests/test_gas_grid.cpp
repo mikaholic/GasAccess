@@ -187,6 +187,48 @@ void test_grid_indexing_and_state_storage()
     REQUIRE(grid.gas_state_count(GasState::ClosedVoid) == 24);
 }
 
+void test_blocker_count_state_invariant()
+{
+    GasGrid grid(make_grid_spec(3, 2, 1));
+    const auto id = grid.voxel_id({1, 1, 0});
+    for (VoxelId voxel_id = 0; voxel_id < grid.voxel_count(); ++voxel_id) {
+        REQUIRE(grid.blocker_count(voxel_id) == 0);
+    }
+
+    grid.set_gas_state(id, GasState::Solid);
+    REQUIRE(grid.blocker_count(id) == 1);
+    grid.set_gas_state(id, GasState::OutsideAccessible);
+    REQUIRE(grid.blocker_count(id) == 0);
+
+    grid.set_blocker_count(id, 2);
+    REQUIRE(grid.blocker_count(id) == 2);
+    REQUIRE(grid.gas_state(id) == GasState::Solid);
+    REQUIRE(grid.gas_state_count(GasState::Solid) == 1);
+    grid.set_blocker_count(id, 1);
+    REQUIRE(grid.gas_state_count(GasState::Solid) == 1);
+    grid.set_blocker_count(id, 0);
+    REQUIRE(grid.gas_state(id) == GasState::Unclassified);
+    REQUIRE(grid.gas_state_count(GasState::Solid) == 0);
+
+    grid.set_gas_state(id, GasState::ClosedVoid);
+    grid.set_blocker_count(id, 0);
+    REQUIRE(grid.gas_state(id) == GasState::ClosedVoid);
+
+    grid.fill_gas_state(GasState::Solid);
+    for (VoxelId voxel_id = 0; voxel_id < grid.voxel_count(); ++voxel_id) {
+        REQUIRE(grid.blocker_count(voxel_id) == 1);
+    }
+    grid.fill_gas_state(GasState::OutsideAccessible);
+    for (VoxelId voxel_id = 0; voxel_id < grid.voxel_count(); ++voxel_id) {
+        REQUIRE(grid.blocker_count(voxel_id) == 0);
+    }
+
+    REQUIRE_THROWS_AS(grid.blocker_count(grid.voxel_count()), std::out_of_range);
+    REQUIRE_THROWS_AS(
+        grid.set_blocker_count(grid.voxel_count(), 1),
+        std::out_of_range);
+}
+
 void test_invalid_grid_specs()
 {
     auto grid_spec = make_grid_spec();
@@ -412,6 +454,7 @@ int main()
 {
     const std::vector<std::pair<std::string, std::function<void()>>> tests{
         {"grid indexing and state storage", test_grid_indexing_and_state_storage},
+        {"blocker-count state invariant", test_blocker_count_state_invariant},
         {"invalid grid specifications", test_invalid_grid_specs},
         {"nonperiodic neighbors", test_nonperiodic_neighbors},
         {"all periodic axis combinations", test_all_periodic_axis_combinations},

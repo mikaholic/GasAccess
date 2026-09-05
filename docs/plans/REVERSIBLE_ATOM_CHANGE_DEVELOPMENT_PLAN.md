@@ -1,6 +1,6 @@
 # Reversible Atom-Change Development Plan
 
-Status: planned
+Status: Phases R1-R2 complete; Phases R3-R6 planned
 Last updated: 2026-09-05
 
 ## 1. Objective
@@ -47,9 +47,9 @@ The extension has four acceptance goals:
 4. Deposition, desorption, and mixed repair have comparable repeated benchmark
    coverage for one, two, four, and eight MPI ranks.
 
-## 2. Current constraints
+## 2. Starting constraints
 
-The current implementation is intentionally monotonic:
+Before Phase R1, the implementation was intentionally monotonic:
 
 - `GasGrid` and `DistributedGasGrid` store `GasState`, but do not retain how
   many atoms block each voxel.
@@ -143,6 +143,9 @@ retain rank participation, communication-round, and frontier-entry metrics for
 the closing and opening passes.
 
 ## 4. Phase R1 — Reversible voxel occupancy
+
+Status: complete (2026-09-05). Implementation and measurements are recorded in
+[`../benchmarks/PHASE_R1_REVERSIBLE_OCCUPANCY.md`](../benchmarks/PHASE_R1_REVERSIBLE_OCCUPANCY.md).
 
 ### 4.1 Implementation
 
@@ -239,6 +242,9 @@ straightforward array fails the memory or performance review, evaluate checked
   before R2.
 
 ## 5. Phase R2 — Serial desorption and opening repair
+
+Status: complete (2026-09-05). Implementation and verification are recorded in
+[`../benchmarks/PHASE_R2_SERIAL_DESORPTION.md`](../benchmarks/PHASE_R2_SERIAL_DESORPTION.md).
 
 ### 5.1 Algorithm
 

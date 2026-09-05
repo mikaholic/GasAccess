@@ -10,6 +10,7 @@
 namespace gasaccess {
 
 using VoxelId = std::uint64_t;
+using VoxelBlockerCount = std::uint32_t;
 
 struct VoxelCoord {
     std::int64_t x = 0;
@@ -69,6 +70,8 @@ enum class GasState : std::uint8_t {
 
 static_assert(sizeof(GasState) == 1, "GasState must occupy one byte");
 static_assert(sizeof(VoxelId) == 8, "VoxelId must occupy eight bytes");
+static_assert(sizeof(VoxelBlockerCount) == 4,
+    "VoxelBlockerCount must occupy four bytes");
 
 struct GridSpec {
     Point3 origin{};
@@ -107,8 +110,11 @@ public:
 
     GasState gas_state(VoxelId voxel_id) const;
     GasState gas_state(const VoxelCoord& voxel_coord) const;
+    VoxelBlockerCount blocker_count(VoxelId voxel_id) const;
+    VoxelBlockerCount blocker_count(const VoxelCoord& voxel_coord) const;
     VoxelId gas_state_count(GasState gas_state) const;
     void set_gas_state(VoxelId voxel_id, GasState gas_state);
+    void set_blocker_count(VoxelId voxel_id, VoxelBlockerCount blocker_count);
     void fill_gas_state(GasState gas_state);
 
 private:
@@ -125,10 +131,12 @@ private:
     bool is_boundary_source(const VoxelCoord& voxel_coord) const noexcept;
     void initialize_explicit_sources();
     void add_unique_neighbor(NeighborList& neighbor_list, const VoxelCoord& voxel_coord) const;
+    void set_state_only(VoxelId voxel_id, GasState gas_state);
 
     GridSpec grid_spec_;
     VoxelId voxel_count_ = 0;
     std::vector<GasState> states_;
+    std::vector<VoxelBlockerCount> blocker_counts_;
     std::array<VoxelId, 4> state_counts_{};
     std::vector<VoxelId> explicit_source_ids_;
 };

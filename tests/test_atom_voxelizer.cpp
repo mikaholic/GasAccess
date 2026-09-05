@@ -19,6 +19,7 @@
 namespace {
 
 using gasaccess::Atom;
+using gasaccess::AtomChangeBatch;
 using gasaccess::AtomView;
 using gasaccess::AtomVoxelizer;
 using gasaccess::GasGrid;
@@ -28,6 +29,7 @@ using gasaccess::Point3;
 using gasaccess::RemovedVoxel;
 using gasaccess::VoxelCoord;
 using gasaccess::VoxelId;
+using gasaccess::VoxelOccupancyChange;
 
 class TestFailure : public std::runtime_error {
 public:
@@ -159,6 +161,38 @@ bool reference_is_blocked(
     return false;
 }
 
+std::uint32_t reference_blocker_count(
+    const GasGrid& gas_grid,
+    VoxelId voxel_id,
+    const std::vector<Atom>& atoms,
+    double precursor_radius)
+{
+    const auto& grid_spec = gas_grid.grid_spec();
+    const Point3 lengths{
+        grid_spec.spacing.x * static_cast<double>(grid_spec.dimensions.x),
+        grid_spec.spacing.y * static_cast<double>(grid_spec.dimensions.y),
+        grid_spec.spacing.z * static_cast<double>(grid_spec.dimensions.z)
+    };
+    const auto center = gas_grid.voxel_center(voxel_id);
+    std::uint32_t count = 0;
+    for (const auto& atom : atoms) {
+        const double excluded_radius = atom.radius + precursor_radius;
+        const double x_distance = reference_axis_distance(
+            center.x, atom.position.x, lengths.x, grid_spec.periodic.x);
+        const double y_distance = reference_axis_distance(
+            center.y, atom.position.y, lengths.y, grid_spec.periodic.y);
+        const double z_distance = reference_axis_distance(
+            center.z, atom.position.z, lengths.z, grid_spec.periodic.z);
+        const double distance_squared = x_distance * x_distance
+            + y_distance * y_distance
+            + z_distance * z_distance;
+        if (distance_squared <= excluded_radius * excluded_radius) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 void test_single_atom_spherical_exclusion()
 {
     GasGrid gas_grid(make_grid_spec());
@@ -258,6 +292,186 @@ void test_additive_idempotent_and_order_independent()
         preclassified_grid.voxel_id({2, 2, 2})) == GasState::Solid);
     REQUIRE(preclassified_grid.gas_state(
         preclassified_grid.voxel_id({0, 0, 0})) == GasState::OutsideAccessible);
+}
+
+void test_overlapping_blockers_and_last_removal()
+{
+    GasGrid gas_grid(make_grid_spec(4, 1, 1));
+    gas_grid.fill_gas_state(GasState::OutsideAccessible);
+    const Atom atom{{1.5, 0.5, 0.5}, 0.0};
+    const AtomVoxelizer voxelizer(0.0);
+    const auto id = gas_grid.voxel_id({1, 0, 0});
+
+    REQUIRE(voxelizer.voxelize(gas_grid, {&atom, 1}) == 1);
+    REQUIRE(voxelizer.voxelize(gas_grid, {&atom, 1}) == 0);
+    REQUIRE(gas_grid.blocker_count(id) == 2);
+    REQUIRE(gas_grid.gas_state(id) == GasState::Solid);
+
+    std::vector<VoxelOccupancyChange> changes;
+    auto result = voxelizer.apply_atom_changes(
+        gas_grid,
+        {{nullptr, 0}, {&atom, 1}},
+        changes);
+    REQUIRE(result.blocker_count_changed_voxel_count == 1);
+    REQUIRE(result.newly_solid_count == 0);
+    REQUIRE(result.newly_gas_count == 0);
+    REQUIRE(!result.geometry_changed());
+    REQUIRE(changes.size() == 1);
+    REQUIRE(changes[0].previous_blocker_count == 2);
+    REQUIRE(changes[0].blocker_count == 1);
+    REQUIRE(gas_grid.blocker_count(id) == 1);
+    REQUIRE(gas_grid.gas_state(id) == GasState::Solid);
+
+    result = voxelizer.apply_atom_changes(
+        gas_grid,
+        {{nullptr, 0}, {&atom, 1}},
+        changes);
+    REQUIRE(result.newly_gas_count == 1);
+    REQUIRE(changes[0].previous_state == GasState::Solid);
+    REQUIRE(gas_grid.blocker_count(id) == 0);
+    REQUIRE(gas_grid.gas_state(id) == GasState::Unclassified);
+}
+
+void test_mixed_batch_cancellation_and_transitions()
+{
+    GasGrid gas_grid(make_grid_spec(4, 1, 1));
+    const Atom first{{1.5, 0.5, 0.5}, 0.0};
+    const Atom second{{2.5, 0.5, 0.5}, 0.0};
+    const AtomVoxelizer voxelizer(0.0);
+    voxelizer.voxelize(gas_grid, {&first, 1});
+
+    std::vector<VoxelOccupancyChange> changes{{
+        gas_grid.voxel_count(), 0, 0, GasState::ClosedVoid
+    }};
+    auto result = voxelizer.apply_atom_changes(
+        gas_grid,
+        {{nullptr, 0}, {nullptr, 0}},
+        changes);
+    REQUIRE(!result.geometry_changed());
+    REQUIRE(changes.empty());
+
+    result = voxelizer.apply_atom_changes(
+        gas_grid,
+        {{&first, 1}, {&first, 1}},
+        changes);
+    REQUIRE(!result.geometry_changed());
+    REQUIRE(changes.empty());
+    REQUIRE(gas_grid.blocker_count({1, 0, 0}) == 1);
+
+    result = voxelizer.apply_atom_changes(
+        gas_grid,
+        {{&second, 1}, {&first, 1}},
+        changes);
+    REQUIRE(result.blocker_count_changed_voxel_count == 2);
+    REQUIRE(result.newly_solid_count == 1);
+    REQUIRE(result.newly_gas_count == 1);
+    REQUIRE(gas_grid.blocker_count({1, 0, 0}) == 0);
+    REQUIRE(gas_grid.gas_state({1, 0, 0}) == GasState::Unclassified);
+    REQUIRE(gas_grid.blocker_count({2, 0, 0}) == 1);
+    REQUIRE(gas_grid.gas_state({2, 0, 0}) == GasState::Solid);
+}
+
+void test_partially_overlapping_footprints_use_net_changes()
+{
+    GasGrid gas_grid(make_grid_spec(6, 1, 1));
+    const Atom old_atom{{2.5, 0.5, 0.5}, 1.0};
+    const Atom new_atom{{3.5, 0.5, 0.5}, 1.0};
+    const AtomVoxelizer voxelizer(0.0);
+    voxelizer.voxelize(gas_grid, {&old_atom, 1});
+
+    std::vector<VoxelOccupancyChange> changes;
+    const auto result = voxelizer.apply_atom_changes(
+        gas_grid,
+        {{&new_atom, 1}, {&old_atom, 1}},
+        changes);
+    REQUIRE(result.blocker_count_changed_voxel_count == 2);
+    REQUIRE(result.newly_solid_count == 1);
+    REQUIRE(result.newly_gas_count == 1);
+    REQUIRE(changes.size() == 2);
+    REQUIRE(gas_grid.blocker_count({1, 0, 0}) == 0);
+    REQUIRE(gas_grid.blocker_count({2, 0, 0}) == 1);
+    REQUIRE(gas_grid.blocker_count({3, 0, 0}) == 1);
+    REQUIRE(gas_grid.blocker_count({4, 0, 0}) == 1);
+
+    GasGrid rebuilt_grid(make_grid_spec(6, 1, 1));
+    voxelizer.voxelize(rebuilt_grid, {&new_atom, 1});
+    for (VoxelId id = 0; id < gas_grid.voxel_count(); ++id) {
+        REQUIRE(gas_grid.blocker_count(id) == rebuilt_grid.blocker_count(id));
+        REQUIRE(gas_grid.gas_state(id) == rebuilt_grid.gas_state(id));
+    }
+}
+
+void test_transactional_validation_and_count_errors()
+{
+    GasGrid gas_grid(make_grid_spec(4, 1, 1));
+    const Atom present{{1.5, 0.5, 0.5}, 0.0};
+    const Atom absent{{2.5, 0.5, 0.5}, 0.0};
+    const Atom invalid{{3.5, 0.5, 0.5}, -1.0};
+    const AtomVoxelizer voxelizer(0.0);
+    voxelizer.voxelize(gas_grid, {&present, 1});
+
+    const std::vector<Atom> removals{present, absent};
+    std::vector<VoxelOccupancyChange> changes{{
+        gas_grid.voxel_count(), 7, 8, GasState::ClosedVoid
+    }};
+    REQUIRE_THROWS_AS(
+        voxelizer.apply_atom_changes(
+            gas_grid,
+            {{nullptr, 0}, {removals.data(), removals.size()}},
+            changes),
+        std::underflow_error);
+    REQUIRE(gas_grid.blocker_count({1, 0, 0}) == 1);
+    REQUIRE(gas_grid.blocker_count({2, 0, 0}) == 0);
+    REQUIRE(changes.size() == 1);
+    REQUIRE(changes[0].voxel_id == gas_grid.voxel_count());
+
+    REQUIRE_THROWS_AS(
+        voxelizer.apply_atom_changes(
+            gas_grid,
+            {{&invalid, 1}, {&present, 1}},
+            changes),
+        std::invalid_argument);
+    REQUIRE(gas_grid.blocker_count({1, 0, 0}) == 1);
+    REQUIRE(changes.size() == 1);
+
+    REQUIRE_THROWS_AS(
+        voxelizer.apply_atom_changes(
+            gas_grid,
+            {{nullptr, 1}, {nullptr, 0}},
+            changes),
+        std::invalid_argument);
+    REQUIRE(gas_grid.blocker_count({1, 0, 0}) == 1);
+    REQUIRE(changes.size() == 1);
+
+    const auto maximum = std::numeric_limits<gasaccess::VoxelBlockerCount>::max();
+    gas_grid.set_blocker_count(gas_grid.voxel_id({3, 0, 0}), maximum);
+    const Atom overflow{{3.5, 0.5, 0.5}, 0.0};
+    REQUIRE_THROWS_AS(
+        voxelizer.apply_atom_changes(
+            gas_grid,
+            {{&overflow, 1}, {nullptr, 0}},
+            changes),
+        std::overflow_error);
+    REQUIRE(gas_grid.blocker_count({3, 0, 0}) == maximum);
+    REQUIRE(changes.size() == 1);
+}
+
+void test_periodic_mixed_batch_cancellation()
+{
+    auto grid_spec = make_grid_spec(4, 1, 1);
+    grid_spec.periodic.x = true;
+    GasGrid gas_grid(grid_spec);
+    const Atom periodic_image{{-0.5, 0.5, 0.5}, 0.0};
+    const Atom primary_image{{3.5, 0.5, 0.5}, 0.0};
+    const AtomVoxelizer voxelizer(0.0);
+    voxelizer.voxelize(gas_grid, {&periodic_image, 1});
+
+    const auto result = voxelizer.apply_atom_changes(
+        gas_grid,
+        {{&primary_image, 1}, {&periodic_image, 1}});
+    REQUIRE(!result.geometry_changed());
+    REQUIRE(gas_grid.blocker_count({3, 0, 0}) == 1);
+    REQUIRE(gas_grid.gas_state({3, 0, 0}) == GasState::Solid);
 }
 
 void test_periodic_seam_exclusion()
@@ -446,11 +660,25 @@ void test_randomized_against_brute_force()
                     atoms,
                     precursor_radius);
                 REQUIRE((gas_grid.gas_state(id) == GasState::Solid) == expected_solid);
+                REQUIRE(gas_grid.blocker_count(id) == reference_blocker_count(
+                    gas_grid,
+                    id,
+                    atoms,
+                    precursor_radius));
                 if (expected_solid) {
                     ++expected_solid_count;
                 }
             }
             REQUIRE(newly_solid == expected_solid_count);
+
+            const auto removal_result = voxelizer.apply_atom_changes(
+                gas_grid,
+                {{nullptr, 0}, {atoms.data(), atoms.size()}});
+            REQUIRE(removal_result.newly_gas_count == expected_solid_count);
+            for (VoxelId id = 0; id < gas_grid.voxel_count(); ++id) {
+                REQUIRE(gas_grid.blocker_count(id) == 0);
+                REQUIRE(gas_grid.gas_state(id) == GasState::Unclassified);
+            }
         }
     }
 }
@@ -464,6 +692,16 @@ int main()
         {"newly solid change capture", test_newly_solid_change_capture},
         {"additive and order-independent voxelization",
          test_additive_idempotent_and_order_independent},
+        {"overlapping blockers and last removal",
+         test_overlapping_blockers_and_last_removal},
+        {"mixed batch cancellation and transitions",
+         test_mixed_batch_cancellation_and_transitions},
+        {"partially overlapping footprints use net changes",
+         test_partially_overlapping_footprints_use_net_changes},
+        {"transactional validation and count errors",
+         test_transactional_validation_and_count_errors},
+        {"periodic mixed-batch cancellation",
+         test_periodic_mixed_batch_cancellation},
         {"periodic seam exclusion", test_periodic_seam_exclusion},
         {"steric pore threshold", test_steric_pore_threshold},
         {"large origin and small spacing", test_large_origin_and_small_spacing},

@@ -4,11 +4,10 @@ GasAccess is a C++17 library for geometric gas-accessibility analysis on a
 Cartesian voxel grid. Development follows the recorded phased plan in
 [`docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md`](docs/plans/GAS_ACCESS_DEVELOPMENT_PLAN.md).
 
-The current standalone implementation is complete through Phase 14: the serial
-geometry/connectivity/update/query baseline, scale optimization, non-cubic
-voxel support, distributed initial classification, and distributed incremental
-repair for monotonic deposition, plus a SPPARKS-compatible adapter and static
-MPI acceptance application.
+The current implementation includes the original serial and distributed
+geometry/connectivity/query baseline, distributed incremental repair for
+monotonic deposition, and Phase R2 serial incremental desorption repair. MPI
+desorption and mixed-event accessibility repair remain planned work.
 
 - dense one-byte gas-state storage;
 - checked 64-bit voxel identifiers;
@@ -23,6 +22,7 @@ MPI acceptance application.
 - full serial six-neighbor flood-fill from configured reservoir sources;
 - cached `Solid`, `OutsideAccessible`, and `ClosedVoid` voxel states;
 - incrementally maintained solid/outside/closed state counts;
+- checked per-voxel atom-blocker counts, stored only for owned voxels under MPI;
 - allocation-free cached queries using either a seven-voxel default stencil or
   a caller-supplied stencil of at most 27 voxel IDs;
 - a Phase 9 KMC contract requiring only
@@ -35,6 +35,8 @@ MPI acceptance application.
 - reusable epoch/frontier traversal storage with periodic-boundary support;
 - selectable incremental or forced full-reference update modes;
 - sorted changed-voxel reporting and post-update classification counts;
+- serial incremental opening repair after atom desorption, with overlap-safe
+  occupancy and a forced full-reclassification reference mode;
 - an exception-safe C99 API with opaque grid and update-result handles;
 - deterministic open-trench, sealed-trench, and bulk workload generation;
 - machine-readable correctness checksums, timings, and memory reporting;
@@ -91,7 +93,7 @@ Leave `GASACCESS_ENABLE_MPI` off, its default, for a serial-only build.
 compiled against the real SPPARKS base-class headers without linking SPPARKS.
 
 With MPI enabled this produces `build/libgasaccess.a`,
-`build/libgasaccess_mpi.a`, the standalone reference driver, the nine serial
+`build/libgasaccess_mpi.a`, the standalone reference driver, the ten serial
 test executables, `build/gasaccess_mpi_grid_tests`,
 `build/gasaccess_distributed_classifier_tests`, and
 `build/gasaccess_distributed_updater_tests`. Phase 14 also produces
@@ -106,6 +108,7 @@ matrix is provided by `build/gasaccess_mpi_efficiency_driver`.
 - `build/gasaccess_kmc_query_integration_tests`
 - `build/gasaccess_c_api_tests`
 - `build/gasaccess_deposition_updater_tests`
+- `build/gasaccess_desorption_updater_tests`
 - `build/gasaccess_local_topology_filter_tests`
 - `build/gasaccess_affected_region_repair_tests`
 
@@ -125,6 +128,7 @@ To display every individual test-group result directly:
 ./build/gasaccess_kmc_query_integration_tests
 ./build/gasaccess_c_api_tests
 ./build/gasaccess_deposition_updater_tests
+./build/gasaccess_desorption_updater_tests
 ./build/gasaccess_local_topology_filter_tests
 ./build/gasaccess_affected_region_repair_tests
 ```
@@ -150,6 +154,28 @@ helper, and update/query ordering are documented in
 The concrete adapter, mock application, and remaining production handoff are
 documented in
 [`docs/integration/SPPARKS_STATIC_INTEGRATION.md`](docs/integration/SPPARKS_STATIC_INTEGRATION.md).
+
+## Serial incremental desorption
+
+The serial C++ layer can remove one or more atoms using their old positions
+and radii:
+
+```cpp
+gasaccess::DesorptionUpdater updater(precursor_radius);
+const auto result = updater.apply_desorption(
+    gas_grid,
+    {removed_atoms, removed_atom_count});
+```
+
+Blocker counts prevent a voxel from becoming gas while another atom still
+overlaps it. When the final blocker is removed, GasAccess seeds only newly gas
+voxels connected to a reservoir or existing accessible gas and flood-fills the
+reachable `ClosedVoid` components. Empty batches and overlap-only removals skip
+the flood fill. Details and correctness results are recorded in
+[`docs/benchmarks/PHASE_R2_SERIAL_DESORPTION.md`](docs/benchmarks/PHASE_R2_SERIAL_DESORPTION.md).
+
+This interface is currently serial. The MPI updater remains monotonic
+deposition-only until Phase R3.
 
 ## SPPARKS-style static acceptance
 

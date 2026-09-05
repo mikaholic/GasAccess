@@ -66,6 +66,13 @@ struct DistributedRemovedVoxel {
     GasState previous_state = GasState::Unclassified;
 };
 
+struct DistributedVoxelOccupancyChange {
+    VoxelCoord voxel_coord{};
+    VoxelBlockerCount previous_blocker_count = 0;
+    VoxelBlockerCount blocker_count = 0;
+    GasState previous_state = GasState::Unclassified;
+};
+
 class MpiDecomposition {
 public:
     MpiDecomposition(
@@ -108,10 +115,15 @@ public:
     Point3 voxel_center(const VoxelCoord& global_voxel_coord) const;
 
     GasState gas_state(const VoxelCoord& global_voxel_coord) const;
+    VoxelBlockerCount owned_blocker_count(
+        const VoxelCoord& global_voxel_coord) const;
     std::uint64_t owned_gas_state_count(GasState gas_state) const;
     void set_owned_gas_state(
         const VoxelCoord& global_voxel_coord,
         GasState gas_state);
+    void set_owned_blocker_count(
+        const VoxelCoord& global_voxel_coord,
+        VoxelBlockerCount blocker_count);
     void fill_owned_gas_state(GasState gas_state);
 
     std::uint64_t voxelize_owned_atoms(
@@ -121,6 +133,13 @@ public:
         AtomView atom_view,
         double precursor_radius,
         std::vector<DistributedRemovedVoxel>& removed_voxels);
+    AtomChangeOccupancyResult apply_owned_atom_changes(
+        const AtomChangeBatch& atom_changes,
+        double precursor_radius);
+    AtomChangeOccupancyResult apply_owned_atom_changes(
+        const AtomChangeBatch& atom_changes,
+        double precursor_radius,
+        std::vector<DistributedVoxelOccupancyChange>& voxel_changes);
     void exchange_ghost_states();
     bool is_site_accessible(const Point3& site_position) const;
 
@@ -140,6 +159,11 @@ private:
     std::optional<VoxelCoord> normalized_neighbor(
         const VoxelCoord& global_voxel_coord) const noexcept;
     std::size_t state_index(const LocalCoord& local_coord) const noexcept;
+    std::size_t owned_blocker_index(
+        const VoxelCoord& global_voxel_coord) const noexcept;
+    void set_owned_state_only(
+        const VoxelCoord& global_voxel_coord,
+        GasState gas_state);
     std::size_t face_element_count(Face face) const;
     void pack_face(Face face);
     void unpack_face(Face face);
@@ -154,6 +178,7 @@ private:
     GridDimensions storage_dimensions_{};
     std::uint64_t owned_voxel_count_ = 0;
     std::vector<GasState> states_{};
+    std::vector<VoxelBlockerCount> owned_blocker_counts_{};
     std::array<std::uint64_t, 4> owned_state_counts_{};
     std::array<std::vector<GasState>, 6> send_buffers_{};
     std::array<std::vector<GasState>, 6> receive_buffers_{};

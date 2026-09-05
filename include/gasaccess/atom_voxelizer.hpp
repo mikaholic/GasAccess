@@ -20,6 +20,32 @@ struct AtomView {
     std::size_t count = 0;
 };
 
+// A single atomic-lattice update. Added and removed atoms are combined before
+// any voxel occupancy is mutated, so overlap and cancellation are handled by
+// their net blocker-count change.
+struct AtomChangeBatch {
+    AtomView added_atoms{};
+    AtomView removed_atoms{};
+};
+
+struct VoxelOccupancyChange {
+    VoxelId voxel_id = 0;
+    VoxelBlockerCount previous_blocker_count = 0;
+    VoxelBlockerCount blocker_count = 0;
+    GasState previous_state = GasState::Unclassified;
+};
+
+struct AtomChangeOccupancyResult {
+    VoxelId blocker_count_changed_voxel_count = 0;
+    VoxelId newly_solid_count = 0;
+    VoxelId newly_gas_count = 0;
+
+    bool geometry_changed() const noexcept
+    {
+        return newly_solid_count != 0 || newly_gas_count != 0;
+    }
+};
+
 class AtomVoxelizer {
 public:
     explicit AtomVoxelizer(double precursor_radius);
@@ -38,6 +64,17 @@ public:
         GasGrid& gas_grid,
         AtomView atom_view,
         std::vector<RemovedVoxel>& removed_voxels) const;
+
+    // Applies additions and removals transactionally. Every atom in the batch
+    // must correspond exactly once to the caller's atom-list update. Invalid
+    // input, blocker-count underflow, or overflow leaves the grid unchanged.
+    AtomChangeOccupancyResult apply_atom_changes(
+        GasGrid& gas_grid,
+        const AtomChangeBatch& atom_changes) const;
+    AtomChangeOccupancyResult apply_atom_changes(
+        GasGrid& gas_grid,
+        const AtomChangeBatch& atom_changes,
+        std::vector<VoxelOccupancyChange>& voxel_changes) const;
 
 private:
     VoxelId voxelize_impl(
