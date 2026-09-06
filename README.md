@@ -325,7 +325,9 @@ opening traversal metrics are reported separately. Adsorption is the default
 `--change-kind`. The original lifecycle driver is
 documented in
 [`docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md`](docs/benchmarks/PHASE15_LIFECYCLE_EFFICIENCY.md);
-the complete reversible matrix and repeated results are in
+the current best/medium/worst MPI scaling results are in
+[`docs/benchmarks/ATOM_CHANGE_MPI_SCALING.md`](docs/benchmarks/ATOM_CHANGE_MPI_SCALING.md).
+The original Phase R6 matrix is retained in
 [`docs/benchmarks/PHASE_R6_REVERSIBLE_EFFICIENCY.md`](docs/benchmarks/PHASE_R6_REVERSIBLE_EFFICIENCY.md).
 
 ## Reference driver

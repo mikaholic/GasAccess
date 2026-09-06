@@ -561,6 +561,9 @@ RepairMetrics validate_repair_result(
     bool incremental)
 {
     const bool baseline = repair_case == EfficiencyRepairCase::DetectionBaseline;
+    const bool mixed_inlet_replacement =
+        change_kind == EfficiencyChangeKind::Mixed
+        && repair_case == EfficiencyRepairCase::Worst;
     if (baseline) {
         if (result.geometry_changed()
             || result.used_full_reclassification()
@@ -669,7 +672,8 @@ RepairMetrics validate_repair_result(
     if (!global_query(grid, fixture.outside_probe)) {
         throw std::logic_error("repair benchmark closed the outside control probe");
     }
-    if (!baseline && fixture.expected_newly_closed_count != 0
+    if (!baseline && !mixed_inlet_replacement
+        && fixture.expected_newly_closed_count != 0
         && global_query(grid, fixture.closing_probe)) {
         throw std::logic_error("repair benchmark closing cavity remained accessible");
     }
@@ -946,12 +950,16 @@ int run_repair(const Options& options, int rank, int process_count)
     if (!global_query(*incremental_grid, fixture.outside_probe)) {
         throw std::logic_error("repair fixture outside probe is not accessible");
     }
+    const bool mixed_inlet_replacement =
+        options.change_kind == EfficiencyChangeKind::Mixed
+        && options.repair_case == EfficiencyRepairCase::Worst;
     if (options.repair_case != EfficiencyRepairCase::DetectionBaseline
         && fixture.expected_newly_closed_count != 0
         && !global_query(*incremental_grid, fixture.closing_probe)) {
         throw std::logic_error("repair fixture closing probe is not accessible");
     }
     if (options.repair_case != EfficiencyRepairCase::DetectionBaseline
+        && !mixed_inlet_replacement
         && fixture.expected_newly_opened_count != 0
         && global_query(*incremental_grid, fixture.opening_probe)) {
         throw std::logic_error("repair fixture opening probe is not closed");

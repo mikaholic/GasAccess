@@ -2,6 +2,12 @@
 
 Date: 2026-09-05
 
+> Historical benchmark: these Phase R6 results use the original two-component
+> mixed worst-case fixture. The current benchmark uses a more adversarial
+> one-component inlet-replacement fixture and is reported in
+> [`ATOM_CHANGE_MPI_SCALING.md`](ATOM_CHANGE_MPI_SCALING.md), with exact data in
+> [`ATOM_CHANGE_MPI_SCALING_RESULTS.csv`](ATOM_CHANGE_MPI_SCALING_RESULTS.csv).
+
 Phase R6 extends the MPI lifecycle benchmark from adsorption-only repair to
 adsorption, desorption, and atomic mixed batches. It covers detection-only,
 best, medium, and worst cases at 1, 2, 4, and 8 ranks: 48 repeated benchmark

@@ -188,10 +188,42 @@ void configure_mixed_fixture(
             2 + cavity_extent,
             fixture.opening_cavity_begin.y + cavity_extent,
             z_begin + cavity_extent};
+    } else if (repair_case == EfficiencyRepairCase::Worst) {
+        const auto cavity_depth = (dimensions.z * 3U) / 4U;
+        fixture.closing_cavity_begin = {0, 0, 0};
+        fixture.closing_cavity_end = {
+            as_int64(dimensions.x, "x dimension"),
+            as_int64(dimensions.y, "y dimension"),
+            as_int64(cavity_depth, "cavity depth")};
+        fixture.opening_cavity_begin = fixture.closing_cavity_begin;
+        fixture.opening_cavity_end = fixture.closing_cavity_end;
+
+        const auto roof_z = as_int64(cavity_depth, "cavity depth");
+        fixture.added_voxel = {
+            1,
+            as_int64(dimensions.y / 3U, "old inlet y"),
+            roof_z};
+        fixture.removed_voxel = {
+            as_int64(dimensions.x, "x dimension") - 2,
+            as_int64((dimensions.y * 2U) / 3U, "new inlet y"),
+            roof_z};
+        fixture.closing_probe = fixture.closing_cavity_begin;
+        fixture.opening_probe = fixture.closing_probe;
+        fixture.initial_removed_blocker_count = 1;
+
+        const auto cavity_volume = region_volume(
+            fixture.closing_cavity_begin,
+            fixture.closing_cavity_end);
+        fixture.expected_initial_closed_count = 0;
+        fixture.expected_final_closed_count = 0;
+        fixture.expected_newly_solid_count = 1;
+        fixture.expected_newly_gas_count = 1;
+        fixture.expected_newly_closed_count = cavity_volume;
+        fixture.expected_newly_opened_count = cavity_volume + 1U;
+        fixture.expected_changed_count = 2;
+        return;
     } else {
-        const auto cavity_depth = repair_case == EfficiencyRepairCase::Worst
-            ? (dimensions.z * 3U) / 4U
-            : dimensions.z / 4U;
+        const auto cavity_depth = dimensions.z / 4U;
         const auto separator_y = dimensions.y / 2U;
         fixture.closing_cavity_begin = {0, 0, 0};
         fixture.closing_cavity_end = {
@@ -367,11 +399,14 @@ bool is_efficiency_fixture_solid(
             return (closing_shell && coordinate != fixture.added_voxel)
                 || opening_shell;
         }
-        const auto separator_y = fixture.closing_cavity_end.y;
         const auto roof_z = fixture.closing_cavity_end.z;
         if (coordinate.z == roof_z) {
             return coordinate != fixture.added_voxel;
         }
+        if (repair_case == EfficiencyRepairCase::Worst) {
+            return false;
+        }
+        const auto separator_y = fixture.closing_cavity_end.y;
         return coordinate.y == separator_y && coordinate.z < roof_z;
     }
 
